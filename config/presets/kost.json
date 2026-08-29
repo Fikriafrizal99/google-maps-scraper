@@ -35,6 +35,7 @@
     "longitude",
     "rating",
     "reviews",
-    "link"
+    "link",
+    "thumbnail"
   ]
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/gosom/google-maps-scraper/internal/collectorconfig"
 	"github.com/gosom/google-maps-scraper/internal/collectorpost"
+	"github.com/gosom/google-maps-scraper/internal/leadstore"
 )
 
 func main() {
@@ -21,6 +23,8 @@ func main() {
 		configDir  = flag.String("config-dir", "config", "collector config directory")
 		engine     = flag.String("engine", filepath.FromSlash("bin/google_maps_scraper"), "path to google_maps_scraper binary")
 		output     = flag.String("output", "collector-results.csv", "filtered/deduplicated CSV output")
+		dbPath     = flag.String("db", filepath.FromSlash("data/leads.db"), "SQLite master lead database")
+		noDB       = flag.Bool("no-db", false, "skip importing results into the master database")
 		keepRaw    = flag.Bool("keep-raw", false, "keep temporary raw CSV and query file")
 	)
 	flag.Parse()
@@ -79,7 +83,30 @@ func main() {
 		fatalf("post-process results: %v", err)
 	}
 
-	fmt.Printf("Done: %s\n", *output)
+	fmt.Printf("CSV: %s\n", *output)
+
+	if !*noDB {
+		dir := filepath.Dir(*dbPath)
+		if dir != "." {
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				fatalf("create database directory: %v", err)
+			}
+		}
+		store, err := leadstore.Open(*dbPath)
+		if err != nil {
+			fatalf("open master database: %v", err)
+		}
+		count, importErr := store.ImportCSV(context.Background(), *output, preset.Name, area.Name, *subarea)
+		closeErr := store.Close()
+		if importErr != nil {
+			fatalf("import master database: %v", importErr)
+		}
+		if closeErr != nil {
+			fatalf("close master database: %v", closeErr)
+		}
+		fmt.Printf("Master DB: %s (%d rows processed)\n", *dbPath, count)
+	}
+
 	if *keepRaw {
 		fmt.Printf("Raw files kept in: %s\n", tmpDir)
 	}

@@ -41,13 +41,13 @@ type Lead struct {
 }
 
 type Filter struct {
-	Preset   string
-	Area     string
-	Subarea  string
-	Query    string
-	HasPhone bool
+	Preset    string
+	Area      string
+	Subarea   string
+	Query     string
+	HasPhone  bool
 	MinRating float64
-	Limit    int
+	Limit     int
 }
 
 type Stats struct {
@@ -136,7 +136,7 @@ INSERT INTO leads (
     latitude,longitude,rating,review_count,link,thumbnail,first_seen,last_checked
 ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(source_key) DO UPDATE SET
-    preset=excluded.preset, area=excluded.area, subarea=excluded.subarea,
+    area=excluded.area, subarea=excluded.subarea,
     place_id=excluded.place_id, data_id=excluded.data_id, title=excluded.title,
     category=excluded.category, address=excluded.address, phone=excluded.phone,
     website=excluded.website, latitude=excluded.latitude, longitude=excluded.longitude,
@@ -175,13 +175,14 @@ ON CONFLICT(source_key) DO UPDATE SET
 		title := get("title", "name")
 		lat := get("latitude")
 		lng := get("longitude", "longtitude")
-		sourceKey := firstNonEmpty(placeID, dataID, link)
-		if sourceKey == "" {
-			sourceKey = strings.ToLower(strings.TrimSpace(title + "|" + lat + "|" + lng))
+		identity := firstNonEmpty(placeID, dataID, link)
+		if identity == "" {
+			identity = strings.ToLower(strings.TrimSpace(title + "|" + lat + "|" + lng))
 		}
-		if sourceKey == "" {
+		if identity == "" {
 			continue
 		}
+		sourceKey := strings.ToLower(strings.TrimSpace(preset)) + "|" + identity
 
 		rating, _ := strconv.ParseFloat(get("review_rating", "rating"), 64)
 		reviews, _ := strconv.Atoi(get("review_count", "reviews"))
@@ -203,26 +204,48 @@ ON CONFLICT(source_key) DO UPDATE SET
 func (s *Store) List(ctx context.Context, filter Filter) ([]Lead, error) {
 	query := `SELECT id,preset,area,subarea,place_id,data_id,title,category,address,phone,website,latitude,longitude,rating,review_count,link,thumbnail,first_seen,last_checked FROM leads WHERE 1=1`
 	args := make([]any, 0, 8)
-	if filter.Preset != "" { query += " AND preset = ?"; args = append(args, filter.Preset) }
-	if filter.Area != "" { query += " AND area = ?"; args = append(args, filter.Area) }
-	if filter.Subarea != "" { query += " AND subarea = ?"; args = append(args, filter.Subarea) }
-	if filter.Query != "" { query += " AND (title LIKE ? OR address LIKE ? OR category LIKE ? OR phone LIKE ?)"; q := "%" + filter.Query + "%"; args = append(args, q, q, q, q) }
-	if filter.HasPhone { query += " AND TRIM(phone) <> ''" }
-	if filter.MinRating > 0 { query += " AND rating >= ?"; args = append(args, filter.MinRating) }
+	if filter.Preset != "" {
+		query += " AND preset = ?"
+		args = append(args, filter.Preset)
+	}
+	if filter.Area != "" {
+		query += " AND area = ?"
+		args = append(args, filter.Area)
+	}
+	if filter.Subarea != "" {
+		query += " AND subarea = ?"
+		args = append(args, filter.Subarea)
+	}
+	if filter.Query != "" {
+		query += " AND (title LIKE ? OR address LIKE ? OR category LIKE ? OR phone LIKE ?)"
+		q := "%" + filter.Query + "%"
+		args = append(args, q, q, q, q)
+	}
+	if filter.HasPhone {
+		query += " AND TRIM(phone) <> ''"
+	}
+	if filter.MinRating > 0 {
+		query += " AND rating >= ?"
+		args = append(args, filter.MinRating)
+	}
 	query += " ORDER BY last_checked DESC, rating DESC, review_count DESC"
 	limit := filter.Limit
-	if limit <= 0 || limit > 5000 { limit = 500 }
+	if limit <= 0 || limit > 5000 {
+		limit = 500
+	}
 	query += " LIMIT ?"
 	args = append(args, limit)
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
-	if err != nil { return nil, fmt.Errorf("list leads: %w", err) }
+	if err != nil {
+		return nil, fmt.Errorf("list leads: %w", err)
+	}
 	defer rows.Close()
 
 	var leads []Lead
 	for rows.Next() {
 		var lead Lead
-		if err := rows.Scan(&lead.ID,&lead.Preset,&lead.Area,&lead.Subarea,&lead.PlaceID,&lead.DataID,&lead.Title,&lead.Category,&lead.Address,&lead.Phone,&lead.Website,&lead.Latitude,&lead.Longitude,&lead.Rating,&lead.ReviewCount,&lead.Link,&lead.Thumbnail,&lead.FirstSeen,&lead.LastChecked); err != nil {
+		if err := rows.Scan(&lead.ID, &lead.Preset, &lead.Area, &lead.Subarea, &lead.PlaceID, &lead.DataID, &lead.Title, &lead.Category, &lead.Address, &lead.Phone, &lead.Website, &lead.Latitude, &lead.Longitude, &lead.Rating, &lead.ReviewCount, &lead.Link, &lead.Thumbnail, &lead.FirstSeen, &lead.LastChecked); err != nil {
 			return nil, fmt.Errorf("scan lead: %w", err)
 		}
 		leads = append(leads, lead)
@@ -232,7 +255,7 @@ func (s *Store) List(ctx context.Context, filter Filter) ([]Lead, error) {
 
 func (s *Store) Stats(ctx context.Context) (Stats, error) {
 	var stats Stats
-	const q = `SELECT COUNT(*), SUM(CASE WHEN TRIM(phone) <> '' THEN 1 ELSE 0 END), SUM(CASE WHEN TRIM(website) <> '' THEN 1 ELSE 0 END), COALESCE(AVG(NULLIF(rating,0)),0) FROM leads`
+	const q = `SELECT COUNT(*), COALESCE(SUM(CASE WHEN TRIM(phone) <> '' THEN 1 ELSE 0 END),0), COALESCE(SUM(CASE WHEN TRIM(website) <> '' THEN 1 ELSE 0 END),0), COALESCE(AVG(NULLIF(rating,0)),0) FROM leads`
 	if err := s.db.QueryRowContext(ctx, q).Scan(&stats.Total, &stats.WithPhone, &stats.WithWebsite, &stats.AvgRating); err != nil {
 		return Stats{}, fmt.Errorf("lead stats: %w", err)
 	}
@@ -241,7 +264,9 @@ func (s *Store) Stats(ctx context.Context) (Stats, error) {
 
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
-		if strings.TrimSpace(value) != "" { return strings.TrimSpace(value) }
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
 	}
 	return ""
 }

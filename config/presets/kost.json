@@ -1,0 +1,40 @@
+{
+  "name": "kost",
+  "description": "Preset pencarian kos/kost yang dapat dipakai ulang untuk area mana pun.",
+  "keywords": [
+    "kos",
+    "kost",
+    "indekos",
+    "rumah kos",
+    "rumah kost",
+    "kost putra",
+    "kost putri",
+    "kost campur",
+    "kost eksklusif"
+  ],
+  "filters": {
+    "required_fields": ["title", "address"],
+    "min_rating": 0,
+    "has_phone": false,
+    "has_website": false,
+    "include_title_patterns": ["kos", "kost", "indekos", "boarding"],
+    "exclude_title_patterns": ["hotel", "hostel", "apartment", "apartemen"]
+  },
+  "dedup": {
+    "keys": ["place_id", "data_id", "phone", "title+coordinates"]
+  },
+  "output_fields": [
+    "place_id",
+    "data_id",
+    "title",
+    "category",
+    "address",
+    "phone",
+    "website",
+    "latitude",
+    "longitude",
+    "rating",
+    "reviews",
+    "link"
+  ]
+}

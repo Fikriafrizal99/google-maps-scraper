@@ -1,0 +1,13 @@
+{
+  "name": "jakarta",
+  "display_name": "DKI Jakarta",
+  "country": "Indonesia",
+  "search_suffix": "Jakarta, Indonesia",
+  "subareas": [
+    {"name": "Jakarta Pusat", "search_suffix": "Jakarta Pusat, DKI Jakarta"},
+    {"name": "Jakarta Selatan", "search_suffix": "Jakarta Selatan, DKI Jakarta"},
+    {"name": "Jakarta Barat", "search_suffix": "Jakarta Barat, DKI Jakarta"},
+    {"name": "Jakarta Timur", "search_suffix": "Jakarta Timur, DKI Jakarta"},
+    {"name": "Jakarta Utara", "search_suffix": "Jakarta Utara, DKI Jakarta"}
+  ]
+}

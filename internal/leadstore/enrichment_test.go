@@ -17,10 +17,11 @@ func TestEvaluateKostEnrichmentSegment(t *testing.T) {
 		{"putra", Lead{ID: 2, Title: "Rumah Kost Putra Exclusive"}, "putra"},
 		{"pasutri", Lead{ID: 3, Title: "Kost Pasutri Mampang"}, "pasutri"},
 		{"campur", Lead{ID: 4, Title: "Kos Campur Bulanan"}, "campur"},
-		{"unknown", Lead{ID: 5, Title: "Kost Melati"}, EnrichmentUnknown},
+		{"putra putri", Lead{ID: 5, Title: "Kost Putra Putri Setiabudi"}, "campur"},
+		{"unknown", Lead{ID: 6, Title: "Kost Melati"}, EnrichmentUnknown},
 	}
 	for _, tt := range tests {
-		tt := tt
+		t := tt
 		t.Run(tt.name, func(t *testing.T) {
 			e := EvaluateKostEnrichment(tt.lead)
 			if e.Segment != tt.want {

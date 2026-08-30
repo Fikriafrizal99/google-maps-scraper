@@ -22,12 +22,17 @@ func (a *app) handleCollect(w http.ResponseWriter, r *http.Request) {
 	preset := strings.TrimSpace(r.FormValue("preset"))
 	area := strings.TrimSpace(r.FormValue("area"))
 	subarea := strings.TrimSpace(r.FormValue("subarea"))
+	location := strings.TrimSpace(r.FormValue("location"))
 	if !safeConfigName(preset) || !safeConfigName(area) {
 		http.Error(w, "preset/area hanya boleh huruf, angka, dash, underscore", http.StatusBadRequest)
 		return
 	}
 	if len(subarea) > 120 {
 		http.Error(w, "subarea terlalu panjang", http.StatusBadRequest)
+		return
+	}
+	if len(location) > 300 {
+		http.Error(w, "location terlalu panjang", http.StatusBadRequest)
 		return
 	}
 	depth := parseBoundedInt(r.FormValue("depth"), 5, 1, 30)
@@ -39,18 +44,24 @@ func (a *app) handleCollect(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "collector masih berjalan", http.StatusConflict)
 		return
 	}
+	label := area
+	if location != "" {
+		label = location
+	} else if subarea != "" {
+		label = subarea
+	}
 	a.collect = collectState{
 		Running:   true,
-		Message:   fmt.Sprintf("Collect %s / %s dimulai", preset, area),
+		Message:   fmt.Sprintf("Collect %s / %s dimulai", preset, label),
 		StartedAt: time.Now().Format("2006-01-02 15:04:05"),
 	}
 	a.collectMu.Unlock()
 
-	go a.runCollector(preset, area, subarea, depth, concurrency)
+	go a.runCollector(preset, area, subarea, location, depth, concurrency)
 	http.Redirect(w, r, "/?collect=started", http.StatusSeeOther)
 }
 
-func (a *app) runCollector(preset, area, subarea string, depth, concurrency int) {
+func (a *app) runCollector(preset, area, subarea, location string, depth, concurrency int) {
 	stamp := time.Now().Format("20060102-150405")
 	output := filepath.Join("data", fmt.Sprintf("latest-%s-%s.csv", preset, area))
 	logPath := filepath.Join("data", "collector-last.log")
@@ -62,7 +73,9 @@ func (a *app) runCollector(preset, area, subarea string, depth, concurrency int)
 		"-output", output,
 		"-db", a.dbPath,
 	}
-	if subarea != "" {
+	if location != "" {
+		args = append(args, "-location", location)
+	} else if subarea != "" {
 		args = append(args, "-subarea", subarea)
 	}
 	args = append(args, "--", "-c", strconv.Itoa(concurrency), "-depth", strconv.Itoa(depth))

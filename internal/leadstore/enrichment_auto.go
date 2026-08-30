@@ -2,6 +2,7 @@ package leadstore
 
 import (
 	"context"
+	"fmt"
 	"strings"
 )
 
@@ -132,6 +133,10 @@ func HasEnrichmentSignal(e KostEnrichment) bool {
 }
 
 func (s *Store) RunAutoEnrichment(ctx context.Context, filter Filter, apply bool) (EnrichmentSummary, error) {
+	preset := strings.TrimSpace(filter.Preset)
+	if preset != "" && !strings.EqualFold(preset, "kost") {
+		return EnrichmentSummary{}, fmt.Errorf("kost auto-enrichment only supports preset kost; preset %q is not supported", preset)
+	}
 	if filter.Limit <= 0 || filter.Limit > 5000 {
 		filter.Limit = 5000
 	}
@@ -145,6 +150,12 @@ func (s *Store) RunAutoEnrichment(ctx context.Context, filter Filter, apply bool
 
 	summary := EnrichmentSummary{Total: len(leads)}
 	for _, lead := range leads {
+		// Defensive guard for calls without a preset: never apply kost rules to
+		// records from another niche such as b2b-prospecting.
+		if !strings.EqualFold(strings.TrimSpace(lead.Preset), "kost") {
+			summary.NoSignal++
+			continue
+		}
 		e := EvaluateKostEnrichment(lead)
 		if HasEnrichmentSignal(e) {
 			summary.Detected++

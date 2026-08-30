@@ -95,3 +95,41 @@ func TestImportCSVUpsertsSamePresetLead(t *testing.T) {
 		t.Fatalf("expected refreshed phone, got %q", leads[0].Phone)
 	}
 }
+
+func TestListMatchesParentAdministrativeScope(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	csvPath := filepath.Join(dir, "leads.csv")
+	content := "place_id,title,address,phone\n" +
+		"p1,Bengkel Maju,Cugenang Cianjur,08123456789\n"
+	if err := os.WriteFile(csvPath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := Open(filepath.Join(dir, "leads.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	villagePath := "SUKAMULYA, CUGENANG, KABUPATEN CIANJUR, JAWA BARAT, Indonesia"
+	if _, err := store.ImportCSV(context.Background(), csvPath, "b2b-prospecting", "java-sumatra", villagePath); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, scope := range []string{
+		"JAWA BARAT, Indonesia",
+		"KABUPATEN CIANJUR, JAWA BARAT, Indonesia",
+		"CUGENANG, KABUPATEN CIANJUR, JAWA BARAT, Indonesia",
+		villagePath,
+	} {
+		leads, err := store.List(context.Background(), Filter{Area: "java-sumatra", Subarea: scope, Limit: 10})
+		if err != nil {
+			t.Fatalf("List(%q) error = %v", scope, err)
+		}
+		if len(leads) != 1 {
+			t.Fatalf("List(%q) len = %d, want 1", scope, len(leads))
+		}
+	}
+}

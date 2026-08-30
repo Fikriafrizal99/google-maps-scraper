@@ -40,8 +40,44 @@ CREATE INDEX IF NOT EXISTS idx_lead_reviews_status ON lead_reviews(status);
 	if _, err := s.db.ExecContext(ctx, schema); err != nil {
 		return fmt.Errorf("migrate lead review store: %w", err)
 	}
-	if err := s.ensureColumn(ctx, "lead_reviews", "source", "TEXT NOT NULL DEFAULT 'manual'"); err != nil {
+	if err := s.ensureReviewSourceColumn(ctx); err != nil {
 		return err
+	}
+	return nil
+}
+
+func (s *Store) ensureReviewSourceColumn(ctx context.Context) error {
+	rows, err := s.db.QueryContext(ctx, "PRAGMA table_info(lead_reviews)")
+	if err != nil {
+		return fmt.Errorf("inspect lead_reviews schema: %w", err)
+	}
+	found := false
+	for rows.Next() {
+		var cid int
+		var name, colType string
+		var notNull, pk int
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &defaultValue, &pk); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan lead_reviews schema: %w", err)
+		}
+		if name == "source" {
+			found = true
+			break
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("inspect lead_reviews schema rows: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close lead_reviews schema rows: %w", err)
+	}
+	if found {
+		return nil
+	}
+	if _, err := s.db.ExecContext(ctx, "ALTER TABLE lead_reviews ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'"); err != nil {
+		return fmt.Errorf("add lead_reviews.source column: %w", err)
 	}
 	return nil
 }
@@ -95,7 +131,7 @@ func (s *Store) updateReview(ctx context.Context, leadID int64, status, note, so
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	if preserveManual {
-		result, err := s.db.ExecContext(ctx, `
+		_, err := s.db.ExecContext(ctx, `
 INSERT INTO lead_reviews (lead_id,status,note,reviewed_at,source)
 VALUES (?,?,?,?,?)
 ON CONFLICT(lead_id) DO UPDATE SET
@@ -107,7 +143,6 @@ WHERE lead_reviews.source != 'manual'`, leadID, status, note, now, source)
 		if err != nil {
 			return fmt.Errorf("update auto lead review: %w", err)
 		}
-		_, _ = result.RowsAffected()
 		return nil
 	}
 

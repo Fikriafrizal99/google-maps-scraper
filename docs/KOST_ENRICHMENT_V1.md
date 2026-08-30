@@ -16,8 +16,8 @@ Menambah data keterangan kost di atas master lead Google Maps tanpa mengubah dat
 
 | Field | Contoh | Catatan |
 | --- | --- | --- |
-| `segment` | `putri`, `putra`, `campur`, `pasutri` | `unknown` jika tidak eksplisit |
-| `target` | `mahasiswa`, `karyawan`, `keluarga` | Tidak menganggap `umum` tanpa bukti |
+| `segment` | `putri`, `putra`, `campur`, `pasutri`, `umum` | `unknown` jika tidak eksplisit |
+| `target` | `mahasiswa`, `karyawan`, `keluarga`, `umum` | `unknown` jika belum diketahui |
 | `rental_type` | `harian`, `mingguan`, `bulanan`, `tahunan` | Bisa lebih dari satu, dipisahkan koma |
 | `price_range` | `unknown` | V1 tidak menebak harga |
 | `facilities` | `AC, WiFi, Kamar mandi dalam` | Hanya sinyal eksplisit |
@@ -74,12 +74,29 @@ Apply hanya setelah preview dinilai masuk akal:
   -apply
 ```
 
+Pilot Jakarta Selatan yang dipakai untuk validasi V1 menghasilkan 280 lead: 120 memiliki sinyal enrichment dan 160 tetap tanpa sinyal. Apply berhasil memproses 280 lead tanpa manual override yang perlu dipertahankan.
+
+## Dashboard integration
+
+Dashboard internal sekarang membaca `lead_enrichment` bersama data lead dan review.
+
+Fitur V1 di dashboard:
+
+- kolom segmentasi dan target pada tabel lead;
+- filter segment, target, dan status verifikasi;
+- detail lead menampilkan form Keterangan Kost;
+- manual edit mengubah `source` menjadi `manual`, sehingga auto-enrichment berikutnya tidak menimpa data tersebut;
+- internal CSV export mengikuti filter enrichment dan menyertakan field enrichment;
+- template dashboard dan detail dipisah dari bootstrap Go agar lebih mudah dirawat dan direvert.
+
+Customer-safe export belum termasuk dalam tahap ini. `/export.csv` masih dianggap internal export.
+
 ## Testing
 
 Jalankan:
 
 ```bash
-go test ./internal/leadstore ./cmd/leadenrich
+go test ./internal/leadstore ./cmd/leadenrich ./cmd/leaddashboard
 ```
 
 Test V1 mencakup:
@@ -88,17 +105,21 @@ Test V1 mencakup:
 - data ambigu tetap `unknown`;
 - deteksi fasilitas dan tipe sewa;
 - manual enrichment tidak ditimpa auto-enrichment;
-- default enrichment untuk lead yang belum pernah diproses.
+- default enrichment untuk lead yang belum pernah diproses;
+- helper dashboard lama tetap diuji setelah refactor.
 
 ## Commit checkpoints
 
-Fitur V1 sengaja dipecah ke commit kecil:
+Fitur V1 sengaja dipecah ke commit yang jelas:
 
 1. `feat: add kost enrichment storage`
 2. `feat: add conservative kost auto enrichment`
 3. `test: cover kost enrichment rules and manual override`
 4. `feat: add kost enrichment preview cli`
 5. `docs: document kost enrichment v1`
+6. `fix: correct enrichment table test runner`
+7. `feat: integrate kost enrichment into lead dashboard`
+8. `docs: record enrichment dashboard integration`
 
 Untuk membatalkan satu perubahan tanpa membuang commit setelahnya, gunakan:
 
@@ -110,9 +131,9 @@ Jangan gunakan `git reset --hard` pada branch bersama kecuali benar-benar memaha
 
 ## Tahap berikutnya
 
-Setelah test dan preview lokal lolos:
+Setelah dashboard enrichment lolos test lokal:
 
-1. tampilkan enrichment di detail lead dashboard;
-2. tambah form manual edit;
-3. tambah filter segment/target/verification;
-4. baru integrasikan ke customer-safe export.
+1. validasi tampilan dan manual edit pada beberapa lead;
+2. validasi filter Putra/Putri/Campur/Pasutri dan CSV internal;
+3. buat customer-safe export yang tidak membawa field internal;
+4. lanjutkan ke Excel customer delivery setelah alur CSV final stabil.

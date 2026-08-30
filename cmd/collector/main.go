@@ -19,7 +19,8 @@ func main() {
 	var (
 		presetName = flag.String("preset", "", "preset name from config/presets, e.g. kost")
 		areaName   = flag.String("area", "", "area name from config/areas, e.g. jakarta")
-		subarea    = flag.String("subarea", "", "optional subarea name, e.g. Jakarta Selatan")
+		subarea    = flag.String("subarea", "", "optional static subarea name, e.g. Jakarta Selatan")
+		location   = flag.String("location", "", "optional resolved administrative location from province to village")
 		configDir  = flag.String("config-dir", "config", "collector config directory")
 		engine     = flag.String("engine", filepath.FromSlash("bin/google_maps_scraper"), "path to google_maps_scraper binary")
 		output     = flag.String("output", "collector-results.csv", "filtered/deduplicated CSV output")
@@ -44,7 +45,14 @@ func main() {
 	if err != nil {
 		fatalf("load area: %v", err)
 	}
-	queries, err := collectorconfig.BuildQueries(preset, area, *subarea)
+
+	resolvedLocation := strings.TrimSpace(*location)
+	var queries []string
+	if resolvedLocation != "" {
+		queries, err = collectorconfig.BuildQueriesForLocation(preset, resolvedLocation)
+	} else {
+		queries, err = collectorconfig.BuildQueries(preset, area, *subarea)
+	}
 	if err != nil {
 		fatalf("build queries: %v", err)
 	}
@@ -67,7 +75,9 @@ func main() {
 	args = append(args, flag.Args()...)
 
 	fmt.Printf("Collector preset=%s area=%s queries=%d\n", preset.Name, area.DisplayName, len(queries))
-	if *subarea != "" {
+	if resolvedLocation != "" {
+		fmt.Printf("Location: %s\n", resolvedLocation)
+	} else if *subarea != "" {
 		fmt.Printf("Subarea: %s\n", *subarea)
 	}
 
@@ -96,7 +106,11 @@ func main() {
 		if err != nil {
 			fatalf("open master database: %v", err)
 		}
-		count, importErr := store.ImportCSV(context.Background(), *output, preset.Name, area.Name, *subarea)
+		storedSubarea := strings.TrimSpace(*subarea)
+		if resolvedLocation != "" {
+			storedSubarea = resolvedLocation
+		}
+		count, importErr := store.ImportCSV(context.Background(), *output, preset.Name, area.Name, storedSubarea)
 		closeErr := store.Close()
 		if importErr != nil {
 			fatalf("import master database: %v", importErr)

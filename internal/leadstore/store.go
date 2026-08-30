@@ -36,6 +36,7 @@ type Lead struct {
 	ReviewCount int     `json:"review_count"`
 	Link        string  `json:"link"`
 	Thumbnail   string  `json:"thumbnail"`
+	Images      string  `json:"images"`
 	FirstSeen   string  `json:"first_seen"`
 	LastChecked string  `json:"last_checked"`
 }
@@ -93,6 +94,7 @@ CREATE TABLE IF NOT EXISTS leads (
     review_count INTEGER NOT NULL DEFAULT 0,
     link TEXT NOT NULL DEFAULT '',
     thumbnail TEXT NOT NULL DEFAULT '',
+    images TEXT NOT NULL DEFAULT '',
     first_seen TEXT NOT NULL,
     last_checked TEXT NOT NULL
 );
@@ -103,6 +105,37 @@ CREATE INDEX IF NOT EXISTS idx_leads_rating ON leads(rating);
 `
 	if _, err := s.db.ExecContext(ctx, schema); err != nil {
 		return fmt.Errorf("migrate lead store: %w", err)
+	}
+	if err := s.ensureColumn(ctx, "leads", "images", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Store) ensureColumn(ctx context.Context, table, column, definition string) error {
+	rows, err := s.db.QueryContext(ctx, "PRAGMA table_info("+table+")")
+	if err != nil {
+		return fmt.Errorf("inspect %s schema: %w", table, err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var name, colType string
+		var notNull, pk int
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &defaultValue, &pk); err != nil {
+			return fmt.Errorf("scan %s schema: %w", table, err)
+		}
+		if name == column {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("inspect %s schema rows: %w", table, err)
+	}
+	if _, err := s.db.ExecContext(ctx, "ALTER TABLE "+table+" ADD COLUMN "+column+" "+definition); err != nil {
+		return fmt.Errorf("add %s.%s column: %w", table, column, err)
 	}
 	return nil
 }
@@ -133,15 +166,15 @@ func (s *Store) ImportCSV(ctx context.Context, path, preset, area, subarea strin
 	const upsert = `
 INSERT INTO leads (
     source_key,preset,area,subarea,place_id,data_id,title,category,address,phone,website,
-    latitude,longitude,rating,review_count,link,thumbnail,first_seen,last_checked
-) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    latitude,longitude,rating,review_count,link,thumbnail,images,first_seen,last_checked
+) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(source_key) DO UPDATE SET
     area=excluded.area, subarea=excluded.subarea,
     place_id=excluded.place_id, data_id=excluded.data_id, title=excluded.title,
     category=excluded.category, address=excluded.address, phone=excluded.phone,
     website=excluded.website, latitude=excluded.latitude, longitude=excluded.longitude,
     rating=excluded.rating, review_count=excluded.review_count, link=excluded.link,
-    thumbnail=excluded.thumbnail, last_checked=excluded.last_checked`
+    thumbnail=excluded.thumbnail, images=excluded.images, last_checked=excluded.last_checked`
 
 	stmt, err := tx.PrepareContext(ctx, upsert)
 	if err != nil {
@@ -188,7 +221,7 @@ ON CONFLICT(source_key) DO UPDATE SET
 		reviews, _ := strconv.Atoi(get("review_count", "reviews"))
 		if _, err := stmt.ExecContext(ctx,
 			sourceKey, preset, area, subarea, placeID, dataID, title, get("category"), get("address"),
-			get("phone"), get("website", "web_site"), lat, lng, rating, reviews, link, get("thumbnail"), now, now,
+			get("phone"), get("website", "web_site"), lat, lng, rating, reviews, link, get("thumbnail"), get("images"), now, now,
 		); err != nil {
 			return 0, fmt.Errorf("upsert lead %q: %w", title, err)
 		}
@@ -202,7 +235,7 @@ ON CONFLICT(source_key) DO UPDATE SET
 }
 
 func (s *Store) List(ctx context.Context, filter Filter) ([]Lead, error) {
-	query := `SELECT id,preset,area,subarea,place_id,data_id,title,category,address,phone,website,latitude,longitude,rating,review_count,link,thumbnail,first_seen,last_checked FROM leads WHERE 1=1`
+	query := `SELECT id,preset,area,subarea,place_id,data_id,title,category,address,phone,website,latitude,longitude,rating,review_count,link,thumbnail,images,first_seen,last_checked FROM leads WHERE 1=1`
 	args := make([]any, 0, 8)
 	if filter.Preset != "" {
 		query += " AND preset = ?"
@@ -245,7 +278,7 @@ func (s *Store) List(ctx context.Context, filter Filter) ([]Lead, error) {
 	var leads []Lead
 	for rows.Next() {
 		var lead Lead
-		if err := rows.Scan(&lead.ID, &lead.Preset, &lead.Area, &lead.Subarea, &lead.PlaceID, &lead.DataID, &lead.Title, &lead.Category, &lead.Address, &lead.Phone, &lead.Website, &lead.Latitude, &lead.Longitude, &lead.Rating, &lead.ReviewCount, &lead.Link, &lead.Thumbnail, &lead.FirstSeen, &lead.LastChecked); err != nil {
+		if err := rows.Scan(&lead.ID, &lead.Preset, &lead.Area, &lead.Subarea, &lead.PlaceID, &lead.DataID, &lead.Title, &lead.Category, &lead.Address, &lead.Phone, &lead.Website, &lead.Latitude, &lead.Longitude, &lead.Rating, &lead.ReviewCount, &lead.Link, &lead.Thumbnail, &lead.Images, &lead.FirstSeen, &lead.LastChecked); err != nil {
 			return nil, fmt.Errorf("scan lead: %w", err)
 		}
 		leads = append(leads, lead)

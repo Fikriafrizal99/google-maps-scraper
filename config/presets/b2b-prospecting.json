@@ -1,0 +1,58 @@
+{
+  "name": "b2b-prospecting",
+  "description": "Preset prospecting usaha publik untuk Jawa dan Sumatra. Fokus pada bisnis yang dapat dihubungi melalui kanal bisnis publik; tidak digunakan untuk menginferensikan kondisi finansial individu.",
+  "keywords": [
+    "bengkel mobil",
+    "bengkel motor",
+    "toko sparepart mobil",
+    "toko sparepart motor",
+    "toko ban",
+    "toko bangunan",
+    "material bangunan",
+    "kontraktor",
+    "distributor",
+    "supplier",
+    "grosir sembako",
+    "toko sembako",
+    "percetakan",
+    "konveksi",
+    "laundry",
+    "catering",
+    "mebel",
+    "toko furniture"
+  ],
+  "filters": {
+    "required_fields": ["title", "address", "phone"],
+    "min_rating": 0,
+    "has_phone": true,
+    "has_website": false,
+    "include_title_patterns": [],
+    "exclude_title_patterns": [
+      "bank",
+      "leasing",
+      "finance",
+      "financing",
+      "pinjaman",
+      "pegadaian",
+      "gadai",
+      "koperasi simpan pinjam"
+    ]
+  },
+  "dedup": {
+    "keys": ["place_id", "data_id", "phone", "title+coordinates"]
+  },
+  "output_fields": [
+    "place_id",
+    "data_id",
+    "title",
+    "category",
+    "address",
+    "phone",
+    "website",
+    "latitude",
+    "longitude",
+    "rating",
+    "reviews",
+    "link"
+  ]
+}

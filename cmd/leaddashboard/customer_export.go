@@ -12,26 +12,26 @@ import (
 )
 
 var customerExportHeader = []string{
-	"name",
-	"category",
+	"business_name",
+	"google_category",
 	"address",
 	"area",
-	"subarea",
+	"location_scope",
 	"phone",
 	"website",
 	"rating",
 	"review_count",
 	"maps_url",
 	"photo_url",
-	"segment",
-	"target",
-	"rental_type",
-	"price_range",
-	"facilities",
-	"furnish",
-	"rules",
-	"landmark",
-	"selling_point",
+	"business_scale",
+	"prospect_priority",
+	"business_type_detail",
+	"operational_scale",
+	"products_services",
+	"contact_status",
+	"internal_notes",
+	"service_area",
+	"prospect_fit",
 	"verification_status",
 }
 
@@ -54,7 +54,7 @@ func (a *app) handleCustomerExportCSV(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows = customerSafeRows(rows)
-	filename := "customer-leads-" + time.Now().Format("20060102-150405") + ".csv"
+	filename := "business-prospects-" + time.Now().Format("20060102-150405") + ".csv"
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
 

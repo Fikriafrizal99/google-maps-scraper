@@ -79,6 +79,18 @@ Dashboard menyediakan dua export berbeda:
 
 Customer tidak mendapat akses ke dashboard atau master database.
 
+## Filter URL contract
+
+Tombol export harus membawa filter dashboard aktif ke endpoint export sebagai query parameter terpisah. Contoh:
+
+```text
+/export/customer.csv?segment=putri&verification_status=verified
+```
+
+Jangan menyisipkan seluruh query string sebagai satu nilai template di posisi query URL. Go `html/template` akan melakukan contextual escaping terhadap `=` dan `&`, sehingga server tidak lagi menerima parameter `segment`, `verification_status`, dan filter lain dengan benar.
+
+Dashboard membangun URL export lengkap di Go menggunakan `url.Values`, lalu template hanya merender URL utuh. Pola yang sama digunakan untuk URL pagination supaya filter tidak hilang saat pindah halaman.
+
 ## Testing
 
 Jalankan:
@@ -91,7 +103,8 @@ Test customer export memastikan:
 
 - lead `Exclude` tidak ikut;
 - field internal terlarang tidak ada di header;
-- nilai `unknown` tidak dikirim sebagai teks literal.
+- nilai `unknown` tidak dikirim sebagai teks literal;
+- link export mempertahankan parameter filter aktif.
 
 ## Rollback
 

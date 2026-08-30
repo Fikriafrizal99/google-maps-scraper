@@ -21,7 +21,7 @@ func TestEvaluateKostEnrichmentSegment(t *testing.T) {
 		{"unknown", Lead{ID: 6, Title: "Kost Melati"}, EnrichmentUnknown},
 	}
 	for _, tt := range tests {
-		t := tt
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			e := EvaluateKostEnrichment(tt.lead)
 			if e.Segment != tt.want {

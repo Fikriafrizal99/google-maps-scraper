@@ -2,6 +2,7 @@ package leadstore
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 	"time"
@@ -95,8 +96,11 @@ func (s *Store) GetReview(ctx context.Context, leadID int64) (Review, error) {
 	err := s.db.QueryRowContext(ctx, `SELECT lead_id,status,note,reviewed_at FROM lead_reviews WHERE lead_id = ?`, leadID).Scan(
 		&review.LeadID, &review.Status, &review.Note, &review.ReviewedAt,
 	)
-	if err != nil {
+	if err == sql.ErrNoRows {
 		return Review{LeadID: leadID, Status: ReviewUnreviewed}, nil
+	}
+	if err != nil {
+		return Review{}, fmt.Errorf("get lead review: %w", err)
 	}
 	return review, nil
 }

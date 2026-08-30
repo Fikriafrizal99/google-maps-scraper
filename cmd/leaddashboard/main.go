@@ -79,7 +79,7 @@ func main() {
 	mux.HandleFunc("GET /api/leads", a.handleAPILeadsV2)
 	mux.HandleFunc("GET /export.csv", a.handleExportCSVV2)
 	mux.HandleFunc("GET /export/customer.csv", a.handleCustomerExportCSV)
-	mux.HandleFunc("GET /export/customer.xlsx", a.handleCustomerExportXLSX)
+	mux.HandleFunc("GET /export/customer.xlsx", a.handleCustomerExportXLSXV11)
 	mux.HandleFunc("POST /collect", a.handleCollect)
 	mux.HandleFunc("POST /import", a.handleImport)
 

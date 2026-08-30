@@ -13,7 +13,22 @@ func BuildQueries(preset Preset, area Area, subarea string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	return buildQueries(preset, suffixes)
+}
 
+// BuildQueriesForLocation builds search queries for an already-resolved
+// administrative location such as a province, regency, district, or village.
+// The location comes from the dashboard's cascading geo selector and therefore
+// does not need to exist as a static area config entry.
+func BuildQueriesForLocation(preset Preset, location string) ([]string, error) {
+	location = strings.TrimSpace(location)
+	if location == "" {
+		return nil, fmt.Errorf("location is required")
+	}
+	return buildQueries(preset, []string{location})
+}
+
+func buildQueries(preset Preset, suffixes []string) ([]string, error) {
 	queries := make([]string, 0, len(preset.Keywords)*len(suffixes))
 	seen := make(map[string]struct{}, cap(queries))
 
@@ -23,6 +38,10 @@ func BuildQueries(preset Preset, area Area, subarea string) ([]string, error) {
 			continue
 		}
 		for _, suffix := range suffixes {
+			suffix = strings.TrimSpace(suffix)
+			if suffix == "" {
+				continue
+			}
 			query := strings.TrimSpace(keyword + " " + suffix)
 			key := strings.ToLower(query)
 			if _, ok := seen[key]; ok {
@@ -36,7 +55,6 @@ func BuildQueries(preset Preset, area Area, subarea string) ([]string, error) {
 	if len(queries) == 0 {
 		return nil, fmt.Errorf("no queries generated")
 	}
-
 	return queries, nil
 }
 

@@ -36,6 +36,7 @@
     "rating",
     "reviews",
     "link",
-    "thumbnail"
+    "thumbnail",
+    "images"
   ]
 }

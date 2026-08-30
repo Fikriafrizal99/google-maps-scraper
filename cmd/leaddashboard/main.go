@@ -78,6 +78,7 @@ func main() {
 	mux.HandleFunc("POST /lead/{id}/enrichment", a.handleLeadEnrichment)
 	mux.HandleFunc("GET /api/leads", a.handleAPILeadsV2)
 	mux.HandleFunc("GET /export.csv", a.handleExportCSVV2)
+	mux.HandleFunc("GET /export/customer.csv", a.handleCustomerExportCSV)
 	mux.HandleFunc("POST /collect", a.handleCollect)
 	mux.HandleFunc("POST /import", a.handleImport)
 

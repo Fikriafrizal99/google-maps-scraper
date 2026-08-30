@@ -12,13 +12,13 @@ import (
 	"github.com/gosom/google-maps-scraper/internal/leadstore"
 )
 
-func TestBuildCustomerWorkbookV12UsesDataFirstLeadsSheet(t *testing.T) {
+func TestBuildCustomerWorkbookV12UsesB2BProspectSheet(t *testing.T) {
 	rows := []dashboardRow{{
 		Lead: leadstore.Lead{
-			Title:       "Kost Putri Tebet HK",
-			Address:     "Jl. Tebet Barat Dalam",
-			Area:        "jakarta",
-			Subarea:     "Jakarta Selatan",
+			Title:       "Jaya Motor Cianjur",
+			Address:     "Jl. Raya Cugenang",
+			Area:        "java-sumatra",
+			Subarea:     "CUGENANG, KABUPATEN CIANJUR, JAWA BARAT, Indonesia",
 			Phone:       "0812-1186-8446",
 			Website:     "https://example.com",
 			Rating:      4.8,
@@ -26,12 +26,15 @@ func TestBuildCustomerWorkbookV12UsesDataFirstLeadsSheet(t *testing.T) {
 			Link:        "https://maps.google.com/example",
 		},
 		Enrichment: leadstore.KostEnrichment{
-			Segment:            "putri",
-			Facilities:         "AC, WiFi, kamar mandi dalam",
+			Segment:            "kecil",
+			Target:             "high",
+			RentalType:         "bengkel motor",
+			Facilities:         "servis motor, sparepart",
+			Furnish:            "follow_up",
 			VerificationStatus: "verified",
 		},
 	}}
-	filters := url.Values{"segment": {"putri"}}
+	filters := url.Values{"segment": {"kecil"}, "target": {"high"}}
 	content, err := buildCustomerWorkbookV12(rows, filters, time.Date(2026, 8, 30, 12, 0, 0, 0, time.Local))
 	if err != nil {
 		t.Fatalf("build workbook: %v", err)
@@ -40,9 +43,9 @@ func TestBuildCustomerWorkbookV12UsesDataFirstLeadsSheet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open workbook: %v", err)
 	}
-	var leads string
+	var summary, leads string
 	for _, f := range zr.File {
-		if f.Name != "xl/worksheets/sheet2.xml" {
+		if f.Name != "xl/worksheets/sheet1.xml" && f.Name != "xl/worksheets/sheet2.xml" {
 			continue
 		}
 		r, err := f.Open()
@@ -54,14 +57,23 @@ func TestBuildCustomerWorkbookV12UsesDataFirstLeadsSheet(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		leads = string(data)
+		if f.Name == "xl/worksheets/sheet1.xml" {
+			summary = string(data)
+		} else {
+			leads = string(data)
+		}
 	}
-	for _, want := range []string{"DATABASE - ", "Kost Putri Tebet HK", "Chat WA", "Buka Maps", `autoFilter ref="A4:S5"`, `mergeCell ref="A1:S1"`} {
+	for _, want := range []string{"DATABASE PROSPEK B2B", "Total Prospek", "Coverage Telepon"} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("summary sheet missing %q", want)
+		}
+	}
+	for _, want := range []string{"DATABASE PROSPEK B2B", "Jaya Motor Cianjur", "Skala Usaha", "Prioritas Prospek", "Status Kontak", "Chat WA", "Buka Maps", `autoFilter ref="A4:S5"`, `mergeCell ref="A1:S1"`} {
 		if !strings.Contains(leads, want) {
 			t.Fatalf("leads sheet missing %q", want)
 		}
 	}
-	if strings.Contains(leads, "Lihat Foto") || strings.Contains(leads, `ref="T`) {
-		t.Fatalf("v1.2 should not expose photo-link column: %s", leads)
+	if strings.Contains(leads, "Nama Kost") || strings.Contains(leads, "Kisaran Harga") {
+		t.Fatalf("v1.2 B2B workbook must not expose kost-specific headers: %s", leads)
 	}
 }

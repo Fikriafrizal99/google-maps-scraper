@@ -42,3 +42,25 @@ func TestBuildQueriesSelectedSubarea(t *testing.T) {
 		t.Fatalf("query = %q, want %q", got, want)
 	}
 }
+
+func TestBuildQueriesForLocation(t *testing.T) {
+	t.Parallel()
+
+	preset := Preset{
+		Name:         "b2b-prospecting",
+		Keywords:     []string{"bengkel motor", "toko bangunan"},
+		OutputFields: []string{"title"},
+	}
+	location := "SUKAMULYA, CUGENANG, KABUPATEN CIANJUR, JAWA BARAT, Indonesia"
+
+	queries, err := BuildQueriesForLocation(preset, location)
+	if err != nil {
+		t.Fatalf("BuildQueriesForLocation() error = %v", err)
+	}
+	if len(queries) != 2 {
+		t.Fatalf("BuildQueriesForLocation() len = %d, want 2", len(queries))
+	}
+	if got, want := queries[0], "bengkel motor "+location; got != want {
+		t.Fatalf("query = %q, want %q", got, want)
+	}
+}

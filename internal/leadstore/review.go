@@ -13,6 +13,9 @@ const (
 	ReviewValid       = "valid"
 	ReviewNeedsReview = "needs_review"
 	ReviewExclude     = "exclude"
+
+	ReviewSourceManual = "manual"
+	ReviewSourceAuto   = "auto"
 )
 
 type Review struct {
@@ -20,6 +23,7 @@ type Review struct {
 	Status     string `json:"status"`
 	Note       string `json:"note"`
 	ReviewedAt string `json:"reviewed_at"`
+	Source     string `json:"source"`
 }
 
 func (s *Store) EnsureReviewSchema(ctx context.Context) error {
@@ -28,12 +32,16 @@ CREATE TABLE IF NOT EXISTS lead_reviews (
     lead_id INTEGER PRIMARY KEY,
     status TEXT NOT NULL DEFAULT 'unreviewed',
     note TEXT NOT NULL DEFAULT '',
-    reviewed_at TEXT NOT NULL DEFAULT ''
+    reviewed_at TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT 'manual'
 );
 CREATE INDEX IF NOT EXISTS idx_lead_reviews_status ON lead_reviews(status);
 `
 	if _, err := s.db.ExecContext(ctx, schema); err != nil {
 		return fmt.Errorf("migrate lead review store: %w", err)
+	}
+	if err := s.ensureColumn(ctx, "lead_reviews", "source", "TEXT NOT NULL DEFAULT 'manual'"); err != nil {
+		return err
 	}
 	return nil
 }
@@ -52,6 +60,14 @@ func NormalizeReviewStatus(status string) (string, error) {
 }
 
 func (s *Store) UpdateReview(ctx context.Context, leadID int64, status, note string) error {
+	return s.updateReview(ctx, leadID, status, note, ReviewSourceManual, false)
+}
+
+func (s *Store) updateAutoReview(ctx context.Context, leadID int64, status, note string) error {
+	return s.updateReview(ctx, leadID, status, note, ReviewSourceAuto, true)
+}
+
+func (s *Store) updateReview(ctx context.Context, leadID int64, status, note, source string, preserveManual bool) error {
 	if leadID <= 0 {
 		return fmt.Errorf("invalid lead id")
 	}
@@ -63,11 +79,14 @@ func (s *Store) UpdateReview(ctx context.Context, leadID int64, status, note str
 	if len(note) > 2000 {
 		return fmt.Errorf("review note too long")
 	}
+	if source != ReviewSourceAuto {
+		source = ReviewSourceManual
+	}
 	if err := s.EnsureReviewSchema(ctx); err != nil {
 		return err
 	}
 
-	if status == ReviewUnreviewed && note == "" {
+	if status == ReviewUnreviewed && note == "" && source == ReviewSourceManual {
 		if _, err := s.db.ExecContext(ctx, `DELETE FROM lead_reviews WHERE lead_id = ?`, leadID); err != nil {
 			return fmt.Errorf("clear lead review: %w", err)
 		}
@@ -75,13 +94,31 @@ func (s *Store) UpdateReview(ctx context.Context, leadID int64, status, note str
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	_, err = s.db.ExecContext(ctx, `
-INSERT INTO lead_reviews (lead_id,status,note,reviewed_at)
-VALUES (?,?,?,?)
+	if preserveManual {
+		result, err := s.db.ExecContext(ctx, `
+INSERT INTO lead_reviews (lead_id,status,note,reviewed_at,source)
+VALUES (?,?,?,?,?)
 ON CONFLICT(lead_id) DO UPDATE SET
     status=excluded.status,
     note=excluded.note,
-    reviewed_at=excluded.reviewed_at`, leadID, status, note, now)
+    reviewed_at=excluded.reviewed_at,
+    source=excluded.source
+WHERE lead_reviews.source != 'manual'`, leadID, status, note, now, source)
+		if err != nil {
+			return fmt.Errorf("update auto lead review: %w", err)
+		}
+		_, _ = result.RowsAffected()
+		return nil
+	}
+
+	_, err = s.db.ExecContext(ctx, `
+INSERT INTO lead_reviews (lead_id,status,note,reviewed_at,source)
+VALUES (?,?,?,?,?)
+ON CONFLICT(lead_id) DO UPDATE SET
+    status=excluded.status,
+    note=excluded.note,
+    reviewed_at=excluded.reviewed_at,
+    source=excluded.source`, leadID, status, note, now, source)
 	if err != nil {
 		return fmt.Errorf("update lead review: %w", err)
 	}
@@ -93,8 +130,8 @@ func (s *Store) GetReview(ctx context.Context, leadID int64) (Review, error) {
 		return Review{}, err
 	}
 	var review Review
-	err := s.db.QueryRowContext(ctx, `SELECT lead_id,status,note,reviewed_at FROM lead_reviews WHERE lead_id = ?`, leadID).Scan(
-		&review.LeadID, &review.Status, &review.Note, &review.ReviewedAt,
+	err := s.db.QueryRowContext(ctx, `SELECT lead_id,status,note,reviewed_at,source FROM lead_reviews WHERE lead_id = ?`, leadID).Scan(
+		&review.LeadID, &review.Status, &review.Note, &review.ReviewedAt, &review.Source,
 	)
 	if err == sql.ErrNoRows {
 		return Review{LeadID: leadID, Status: ReviewUnreviewed}, nil
@@ -123,7 +160,7 @@ func (s *Store) ReviewMap(ctx context.Context, leadIDs []int64) (map[int64]Revie
 		placeholders[i] = "?"
 		args[i] = id
 	}
-	query := `SELECT lead_id,status,note,reviewed_at FROM lead_reviews WHERE lead_id IN (` + strings.Join(placeholders, ",") + `)`
+	query := `SELECT lead_id,status,note,reviewed_at,source FROM lead_reviews WHERE lead_id IN (` + strings.Join(placeholders, ",") + `)`
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list lead reviews: %w", err)
@@ -131,7 +168,7 @@ func (s *Store) ReviewMap(ctx context.Context, leadIDs []int64) (map[int64]Revie
 	defer rows.Close()
 	for rows.Next() {
 		var review Review
-		if err := rows.Scan(&review.LeadID, &review.Status, &review.Note, &review.ReviewedAt); err != nil {
+		if err := rows.Scan(&review.LeadID, &review.Status, &review.Note, &review.ReviewedAt, &review.Source); err != nil {
 			return nil, fmt.Errorf("scan lead review: %w", err)
 		}
 		result[review.LeadID] = review

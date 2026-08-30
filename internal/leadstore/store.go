@@ -246,8 +246,8 @@ func (s *Store) List(ctx context.Context, filter Filter) ([]Lead, error) {
 		args = append(args, filter.Area)
 	}
 	if filter.Subarea != "" {
-		query += " AND subarea = ?"
-		args = append(args, filter.Subarea)
+		query += " AND LOWER(subarea) LIKE LOWER(?)"
+		args = append(args, "%"+strings.TrimSpace(filter.Subarea)+"%")
 	}
 	if filter.Query != "" {
 		query += " AND (title LIKE ? OR address LIKE ? OR category LIKE ? OR phone LIKE ?)"

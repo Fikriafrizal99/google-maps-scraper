@@ -21,12 +21,12 @@ func EvaluateKostEnrichment(lead Lead) KostEnrichment {
 	switch {
 	case containsAnyPhrase(text, "suami istri", "pasutri", "pasangan suami istri"):
 		e.Segment = "pasutri"
+	case containsAnyWord(text, "campur", "campuran") || containsAnyPhrase(text, "putra putri", "putri putra"):
+		e.Segment = "campur"
 	case containsAnyWord(text, "putri", "wanita", "perempuan"):
 		e.Segment = "putri"
 	case containsAnyWord(text, "putra", "pria", "laki") || containsAnyPhrase(text, "laki laki"):
 		e.Segment = "putra"
-	case containsAnyWord(text, "campur", "campuran") || containsAnyPhrase(text, "putra putri"):
-		e.Segment = "campur"
 	}
 
 	switch {
@@ -56,7 +56,7 @@ func EvaluateKostEnrichment(lead Lead) KostEnrichment {
 	}
 
 	facilities := make([]string, 0, 8)
-	if containsAnyWord(text, "wifi", "wi-fi") {
+	if containsAnyPhrase(text, "wifi", "wi fi") {
 		facilities = append(facilities, "WiFi")
 	}
 	if containsAnyWord(text, "ac") || containsAnyPhrase(text, "air conditioner", "air conditioning") {

@@ -450,6 +450,16 @@ func segmentLabel(value string) string {
 		return "Menengah"
 	case "besar":
 		return "Besar"
+	case "putra":
+		return "Putra"
+	case "putri":
+		return "Putri"
+	case "campur":
+		return "Campur"
+	case "pasutri":
+		return "Pasutri"
+	case "umum":
+		return "Umum"
 	default:
 		return "Belum diketahui"
 	}

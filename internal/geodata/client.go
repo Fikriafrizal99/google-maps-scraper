@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-const DefaultBaseURL = "https://www.emsifa.com/api-wilayah-indonesia/api"
+const DefaultBaseURL = "https://emsifa.github.io/api-wilayah-indonesia/api"
 
 type Region struct {
 	ID   string `json:"id"`

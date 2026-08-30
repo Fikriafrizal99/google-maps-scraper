@@ -35,7 +35,7 @@ type dashboardPageData struct {
 	Query              string
 	Preset             string
 	Area               string
-	Subarea             string
+	Subarea            string
 	HasPhone           bool
 	MinRating          string
 	ReviewStatus       string
@@ -52,6 +52,8 @@ type dashboardPageData struct {
 	FilterQuery        string
 	InternalExportURL  string
 	CustomerExportURL  string
+	PrevPageURL        string
+	NextPageURL        string
 	Collect            collectState
 }
 
@@ -148,6 +150,17 @@ func buildExportURL(path string, values url.Values) string {
 	return path + "?" + query
 }
 
+func buildPageURL(values url.Values, page int) string {
+	pageValues := url.Values{}
+	for key, items := range values {
+		for _, item := range items {
+			pageValues.Add(key, item)
+		}
+	}
+	pageValues.Set("page", strconv.Itoa(page))
+	return buildExportURL("/", pageValues)
+}
+
 func (a *app) handleDashboardV2(w http.ResponseWriter, r *http.Request) {
 	filter := a.filterFromRequest(r, 5000)
 	allLeads, err := a.store.List(r.Context(), filter)
@@ -230,6 +243,8 @@ func (a *app) handleDashboardV2(w http.ResponseWriter, r *http.Request) {
 		FilterQuery: values.Encode(),
 		InternalExportURL: buildExportURL("/export.csv", values),
 		CustomerExportURL: buildExportURL("/export/customer.csv", values),
+		PrevPageURL: buildPageURL(values, page-1),
+		NextPageURL: buildPageURL(values, page+1),
 		Collect: a.collectStatus(),
 	}
 	if err := dashboardV2Tmpl.Execute(w, data); err != nil {

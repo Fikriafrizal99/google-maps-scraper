@@ -115,3 +115,17 @@ func TestEnrichmentMapDefaultsToUnknown(t *testing.T) {
 		t.Fatalf("unexpected defaults: %+v", items)
 	}
 }
+
+func TestRunAutoEnrichmentRejectsB2BProspecting(t *testing.T) {
+	t.Parallel()
+	store, err := Open(filepath.Join(t.TempDir(), "leads.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	_, err = store.RunAutoEnrichment(context.Background(), Filter{Preset: "b2b-prospecting"}, true)
+	if err == nil {
+		t.Fatal("expected b2b-prospecting preset to be rejected by kost auto-enrichment")
+	}
+}

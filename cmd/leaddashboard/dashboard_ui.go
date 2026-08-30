@@ -58,23 +58,27 @@ type dashboardPageData struct {
 }
 
 var dashboardV2Tmpl = template.Must(template.New("dashboard-v2").Funcs(template.FuncMap{
-	"wa":                waNumber,
-	"shortTime":         shortTime,
-	"reviewLabel":       reviewLabel,
-	"displayValue":      displayValue,
-	"editValue":         editValue,
-	"segmentLabel":      segmentLabel,
-	"verificationLabel": verificationLabel,
+	"wa":                 waNumber,
+	"shortTime":          shortTime,
+	"reviewLabel":        reviewLabel,
+	"displayValue":       displayValue,
+	"editValue":          editValue,
+	"segmentLabel":       segmentLabel,
+	"priorityLabel":      priorityLabel,
+	"contactStatusLabel": contactStatusLabel,
+	"verificationLabel":  verificationLabel,
 }).Parse(dashboardV2HTML))
 
 var detailV2Tmpl = template.Must(template.New("detail-v2").Funcs(template.FuncMap{
-	"wa":                waNumber,
-	"shortTime":         shortTime,
-	"reviewLabel":       reviewLabel,
-	"displayValue":      displayValue,
-	"editValue":         editValue,
-	"segmentLabel":      segmentLabel,
-	"verificationLabel": verificationLabel,
+	"wa":                 waNumber,
+	"shortTime":          shortTime,
+	"reviewLabel":        reviewLabel,
+	"displayValue":       displayValue,
+	"editValue":          editValue,
+	"segmentLabel":       segmentLabel,
+	"priorityLabel":      priorityLabel,
+	"contactStatusLabel": contactStatusLabel,
+	"verificationLabel":  verificationLabel,
 }).Parse(detailV2HTML))
 
 func (a *app) filterFromRequest(r *http.Request, limit int) leadstore.Filter {
@@ -394,16 +398,16 @@ func (a *app) handleExportCSVV2(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	filename := "leads-" + time.Now().Format("20060102-150405") + ".csv"
+	filename := "business-prospects-" + time.Now().Format("20060102-150405") + ".csv"
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
 	writer := csv.NewWriter(w)
 	defer writer.Flush()
 	_ = writer.Write([]string{
-		"preset", "area", "subarea", "title", "category", "address", "phone", "website",
+		"preset", "area", "location_scope", "business_name", "google_category", "address", "phone", "website",
 		"rating", "review_count", "latitude", "longitude", "maps_url", "thumbnail", "images",
-		"segment", "target", "rental_type", "price_range", "facilities", "furnish", "rules",
-		"landmark", "selling_point", "verification_status", "enrichment_source", "enrichment_updated_at",
+		"business_scale", "prospect_priority", "business_type_detail", "operational_scale", "products_services", "contact_status", "internal_notes",
+		"service_area", "prospect_fit", "verification_status", "enrichment_source", "enrichment_updated_at",
 		"review_status", "review_note", "reviewed_at", "first_seen", "last_checked",
 	})
 	for _, row := range rows {
@@ -438,18 +442,48 @@ func editValue(value string) string {
 
 func segmentLabel(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "putra":
-		return "Putra"
-	case "putri":
-		return "Putri"
-	case "campur":
-		return "Campur"
-	case "pasutri":
-		return "Pasutri"
-	case "umum":
-		return "Umum"
+	case "mikro":
+		return "Mikro"
+	case "kecil":
+		return "Kecil"
+	case "menengah":
+		return "Menengah"
+	case "besar":
+		return "Besar"
 	default:
 		return "Belum diketahui"
+	}
+}
+
+func priorityLabel(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "high":
+		return "High"
+	case "medium":
+		return "Medium"
+	case "low":
+		return "Low"
+	case "hold":
+		return "Hold"
+	default:
+		return "Belum dinilai"
+	}
+}
+
+func contactStatusLabel(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "belum_dihubungi":
+		return "Belum dihubungi"
+	case "contacted":
+		return "Sudah dihubungi"
+	case "follow_up":
+		return "Follow up"
+	case "interested":
+		return "Tertarik"
+	case "not_interested":
+		return "Tidak tertarik"
+	default:
+		return "Belum dicatat"
 	}
 }
 

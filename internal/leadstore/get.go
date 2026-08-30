@@ -7,7 +7,7 @@ import (
 )
 
 func (s *Store) Get(ctx context.Context, id int64) (Lead, error) {
-	const query = `SELECT id,preset,area,subarea,place_id,data_id,title,category,address,phone,website,latitude,longitude,rating,review_count,link,thumbnail,first_seen,last_checked FROM leads WHERE id = ?`
+	const query = `SELECT id,preset,area,subarea,place_id,data_id,title,category,address,phone,website,latitude,longitude,rating,review_count,link,thumbnail,images,first_seen,last_checked FROM leads WHERE id = ?`
 
 	var lead Lead
 	err := s.db.QueryRowContext(ctx, query, id).Scan(
@@ -28,6 +28,7 @@ func (s *Store) Get(ctx context.Context, id int64) (Lead, error) {
 		&lead.ReviewCount,
 		&lead.Link,
 		&lead.Thumbnail,
+		&lead.Images,
 		&lead.FirstSeen,
 		&lead.LastChecked,
 	)

@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gosom/google-maps-scraper/internal/geodata"
 	"github.com/gosom/google-maps-scraper/internal/leadstore"
 )
 
@@ -28,6 +29,7 @@ type imageRecord struct {
 
 type app struct {
 	store         *leadstore.Store
+	geo           *geodata.Client
 	user          string
 	pass          string
 	dbPath        string
@@ -44,6 +46,7 @@ func main() {
 	collectorPath := flag.String("collector", filepath.FromSlash("bin/collector"), "collector binary path")
 	enginePath := flag.String("engine", filepath.FromSlash("bin/google_maps_scraper"), "scraper engine binary path")
 	configDir := flag.String("config-dir", "config", "collector config directory")
+	geoCacheDir := flag.String("geo-cache", filepath.FromSlash("data/geo-cache"), "local cache for administrative region choices")
 	flag.Parse()
 
 	if err := os.MkdirAll("data", 0o755); err != nil {
@@ -63,6 +66,7 @@ func main() {
 
 	a := &app{
 		store:         store,
+		geo:           geodata.New(*geoCacheDir),
 		user:          strings.TrimSpace(os.Getenv("LEADS_USER")),
 		pass:          os.Getenv("LEADS_PASS"),
 		dbPath:        *dbPath,
@@ -79,6 +83,10 @@ func main() {
 	mux.HandleFunc("GET /queue", a.handleQueue)
 	mux.HandleFunc("POST /queue/{id}", a.handleQueueSave)
 	mux.HandleFunc("GET /api/leads", a.handleAPILeadsV2)
+	mux.HandleFunc("GET /api/geo/provinces", a.handleGeoProvinces)
+	mux.HandleFunc("GET /api/geo/regencies", a.handleGeoRegencies)
+	mux.HandleFunc("GET /api/geo/districts", a.handleGeoDistricts)
+	mux.HandleFunc("GET /api/geo/villages", a.handleGeoVillages)
 	mux.HandleFunc("GET /export.csv", a.handleExportCSVV2)
 	mux.HandleFunc("GET /export/customer.csv", a.handleCustomerExportCSV)
 	mux.HandleFunc("GET /export/customer.pdf", a.handleCustomerExportPDF)

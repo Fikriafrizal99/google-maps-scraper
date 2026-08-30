@@ -1,0 +1,24 @@
+{
+  "name": "java-sumatra",
+  "display_name": "Jawa dan Sumatra",
+  "country": "Indonesia",
+  "search_suffix": "Indonesia",
+  "subareas": [
+    {"name": "DKI Jakarta", "search_suffix": "DKI Jakarta, Indonesia"},
+    {"name": "Banten", "search_suffix": "Banten, Indonesia"},
+    {"name": "Jawa Barat", "search_suffix": "Jawa Barat, Indonesia"},
+    {"name": "Jawa Tengah", "search_suffix": "Jawa Tengah, Indonesia"},
+    {"name": "DI Yogyakarta", "search_suffix": "DI Yogyakarta, Indonesia"},
+    {"name": "Jawa Timur", "search_suffix": "Jawa Timur, Indonesia"},
+    {"name": "Aceh", "search_suffix": "Aceh, Indonesia"},
+    {"name": "Sumatera Utara", "search_suffix": "Sumatera Utara, Indonesia"},
+    {"name": "Sumatera Barat", "search_suffix": "Sumatera Barat, Indonesia"},
+    {"name": "Riau", "search_suffix": "Riau, Indonesia"},
+    {"name": "Kepulauan Riau", "search_suffix": "Kepulauan Riau, Indonesia"},
+    {"name": "Jambi", "search_suffix": "Jambi, Indonesia"},
+    {"name": "Bengkulu", "search_suffix": "Bengkulu, Indonesia"},
+    {"name": "Sumatera Selatan", "search_suffix": "Sumatera Selatan, Indonesia"},
+    {"name": "Kepulauan Bangka Belitung", "search_suffix": "Kepulauan Bangka Belitung, Indonesia"},
+    {"name": "Lampung", "search_suffix": "Lampung, Indonesia"}
+  ]
+}

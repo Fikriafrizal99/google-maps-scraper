@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -12,6 +13,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
+)
+
+const (
+	collectorLogPath   = "data/collector-last.log"
+	collectTimeLayout = "2006-01-02 15:04:05"
 )
 
 func (a *app) handleCollect(w http.ResponseWriter, r *http.Request) {
@@ -51,10 +57,15 @@ func (a *app) handleCollect(w http.ResponseWriter, r *http.Request) {
 		label = subarea
 	}
 	a.collect = collectState{
-		Running:   true,
-		Message:   fmt.Sprintf("Collect %s / %s dimulai", preset, label),
-		StartedAt: time.Now().Format("2006-01-02 15:04:05"),
+		Running:     true,
+		Stage:       "starting",
+		Message:     fmt.Sprintf("Collect %s / %s dimulai", preset, label),
+		StartedAt:   time.Now().Format(collectTimeLayout),
+		Location:    label,
+		Depth:       depth,
+		Concurrency: concurrency,
 	}
+	a.collectProcess = nil
 	a.collectMu.Unlock()
 
 	go a.runCollector(preset, area, subarea, location, depth, concurrency)
@@ -64,7 +75,7 @@ func (a *app) handleCollect(w http.ResponseWriter, r *http.Request) {
 func (a *app) runCollector(preset, area, subarea, location string, depth, concurrency int) {
 	stamp := time.Now().Format("20060102-150405")
 	output := filepath.Join("data", fmt.Sprintf("latest-%s-%s.csv", preset, area))
-	logPath := filepath.Join("data", "collector-last.log")
+	logPath := filepath.FromSlash(collectorLogPath)
 	args := []string{
 		"-preset", preset,
 		"-area", area,
@@ -82,31 +93,216 @@ func (a *app) runCollector(preset, area, subarea, location string, depth, concur
 
 	logFile, err := os.Create(logPath)
 	if err != nil {
-		a.finishCollect("Gagal membuat collector log: " + err.Error())
+		a.finishCollect("failed", "Gagal membuat collector log: "+err.Error())
 		return
 	}
 	defer logFile.Close()
 
-	cmd := exec.CommandContext(context.Background(), a.collectorPath, args...)
+	cmd := exec.Command(a.collectorPath, args...)
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
-	if err := cmd.Run(); err != nil {
-		a.finishCollect(fmt.Sprintf("Collect gagal (%s). Lihat %s", err, logPath))
+	if err := cmd.Start(); err != nil {
+		a.finishCollect("failed", fmt.Sprintf("Collect gagal dimulai (%s)", err))
 		return
 	}
-	a.finishCollect(fmt.Sprintf("Collect selesai %s · output %s · log %s", stamp, output, logPath))
+
+	a.collectMu.Lock()
+	a.collectProcess = cmd.Process
+	cancelNow := a.collect.CancelRequested
+	if !cancelNow {
+		a.collect.Stage = "running"
+	}
+	a.collectMu.Unlock()
+
+	if cancelNow && cmd.Process != nil {
+		_ = cmd.Process.Signal(os.Interrupt)
+	}
+
+	err = cmd.Wait()
+	a.collectMu.RLock()
+	cancelled := a.collect.CancelRequested
+	a.collectMu.RUnlock()
+
+	if cancelled {
+		a.finishCollect("cancelled", "Collect dibatalkan oleh pengguna")
+		return
+	}
+	if err != nil {
+		a.finishCollect("failed", fmt.Sprintf("Collect gagal (%s). Lihat %s", err, logPath))
+		return
+	}
+	a.finishCollect("completed", fmt.Sprintf("Collect selesai %s · output %s · log %s", stamp, output, logPath))
 }
 
-func (a *app) finishCollect(message string) {
+func (a *app) finishCollect(stage, message string) {
 	a.collectMu.Lock()
-	a.collect = collectState{Running: false, Message: message}
+	state := a.collect
+	state.Running = false
+	state.Stage = stage
+	state.Message = message
+	state.FinishedAt = time.Now().Format(collectTimeLayout)
+	a.collect = state
+	a.collectProcess = nil
 	a.collectMu.Unlock()
 }
 
 func (a *app) collectStatus() collectState {
 	a.collectMu.RLock()
-	defer a.collectMu.RUnlock()
-	return a.collect
+	state := a.collect
+	a.collectMu.RUnlock()
+
+	state.Log = tailTextFile(filepath.FromSlash(collectorLogPath), 64<<10)
+	applyCollectProgress(&state, state.Log)
+	state.Elapsed = collectElapsed(state.StartedAt, state.FinishedAt, state.Running)
+	if strings.TrimSpace(state.Stage) == "" {
+		state.Stage = "idle"
+	}
+	return state
+}
+
+func (a *app) handleCollectStatus(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(a.collectStatus())
+}
+
+func (a *app) handleCollectCancel(w http.ResponseWriter, r *http.Request) {
+	a.collectMu.Lock()
+	if !a.collect.Running {
+		a.collectMu.Unlock()
+		http.Error(w, "tidak ada collector yang sedang berjalan", http.StatusConflict)
+		return
+	}
+	a.collect.CancelRequested = true
+	a.collect.Stage = "cancelling"
+	a.collect.Message = "Permintaan batal dikirim. Menunggu scraper berhenti..."
+	process := a.collectProcess
+	a.collectMu.Unlock()
+
+	if process != nil {
+		if err := process.Signal(os.Interrupt); err != nil {
+			a.collectMu.Lock()
+			a.collect.Message = "Permintaan batal tercatat; menunggu proses collector berhenti"
+			a.collectMu.Unlock()
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(a.collectStatus())
+}
+
+func applyCollectProgress(state *collectState, logText string) {
+	if state == nil || strings.TrimSpace(logText) == "" {
+		return
+	}
+	var latest map[string]string
+	for _, line := range strings.Split(logText, "\n") {
+		index := strings.Index(line, "KOST_PROGRESS ")
+		if index < 0 {
+			continue
+		}
+		fields := strings.Fields(strings.TrimSpace(line[index+len("KOST_PROGRESS "):]))
+		values := make(map[string]string, len(fields))
+		for _, field := range fields {
+			key, value, ok := strings.Cut(field, "=")
+			if ok {
+				values[key] = value
+			}
+		}
+		if len(values) > 0 {
+			latest = values
+		}
+	}
+	if latest == nil {
+		return
+	}
+	parseInt := func(key string, target *int) {
+		if value := latest[key]; value != "" {
+			if parsed, err := strconv.Atoi(value); err == nil && parsed >= 0 {
+				*target = parsed
+			}
+		}
+	}
+	parseInt("queries", &state.QueryCount)
+	parseInt("raw_rows", &state.RawRows)
+	parseInt("final_rows", &state.FinalRows)
+	parseInt("imported_rows", &state.ImportedRows)
+
+	if stage := strings.TrimSpace(latest["stage"]); stage != "" {
+		if state.Running || !terminalCollectStage(state.Stage) {
+			state.Stage = stage
+		}
+	}
+}
+
+func terminalCollectStage(stage string) bool {
+	switch strings.ToLower(strings.TrimSpace(stage)) {
+	case "completed", "cancelled", "failed":
+		return true
+	default:
+		return false
+	}
+}
+
+func tailTextFile(path string, maxBytes int64) string {
+	if maxBytes <= 0 {
+		maxBytes = 64 << 10
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer file.Close()
+	stat, err := file.Stat()
+	if err != nil {
+		return ""
+	}
+	start := stat.Size() - maxBytes
+	if start < 0 {
+		start = 0
+	}
+	if _, err := file.Seek(start, io.SeekStart); err != nil {
+		return ""
+	}
+	data, err := io.ReadAll(io.LimitReader(file, maxBytes))
+	if err != nil {
+		return ""
+	}
+	text := string(data)
+	if start > 0 {
+		if index := strings.IndexByte(text, '\n'); index >= 0 {
+			text = text[index+1:]
+		}
+	}
+	return strings.TrimSpace(text)
+}
+
+func collectElapsed(startRaw, finishRaw string, running bool) string {
+	start, err := time.ParseInLocation(collectTimeLayout, strings.TrimSpace(startRaw), time.Local)
+	if err != nil {
+		return "-"
+	}
+	end := time.Now()
+	if !running && strings.TrimSpace(finishRaw) != "" {
+		if parsed, parseErr := time.ParseInLocation(collectTimeLayout, finishRaw, time.Local); parseErr == nil {
+			end = parsed
+		}
+	}
+	duration := end.Sub(start)
+	if duration < 0 {
+		duration = 0
+	}
+	seconds := int(duration.Seconds())
+	if seconds < 60 {
+		return fmt.Sprintf("%ds", seconds)
+	}
+	minutes := seconds / 60
+	if minutes < 60 {
+		return fmt.Sprintf("%dm %02ds", minutes, seconds%60)
+	}
+	hours := minutes / 60
+	return fmt.Sprintf("%dh %02dm", hours, minutes%60)
 }
 
 func (a *app) handleImport(w http.ResponseWriter, r *http.Request) {

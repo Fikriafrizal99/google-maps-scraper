@@ -27,6 +27,16 @@ type dashboardDetailData struct {
 	Images     []string
 	Review     leadstore.Review
 	Enrichment leadstore.KostEnrichment
+	BackURL    string
+	From       string
+	Position   int
+	Total      int
+	HasPrev    bool
+	HasNext    bool
+	PrevURL    string
+	NextURL    string
+	PrevTitle  string
+	NextTitle  string
 }
 
 type dashboardPageData struct {
@@ -54,7 +64,13 @@ type dashboardPageData struct {
 	CustomerExportURL  string
 	PrevPageURL        string
 	NextPageURL        string
+	CurrentPageURL     string
+	PageNumbers        []int
 	Collect            collectState
+}
+
+func sharedCSS() template.CSS {
+	return template.CSS(sharedUIStyles)
 }
 
 var dashboardV2Tmpl = template.Must(template.New("dashboard-v2").Funcs(template.FuncMap{
@@ -65,6 +81,8 @@ var dashboardV2Tmpl = template.Must(template.New("dashboard-v2").Funcs(template.
 	"editValue":         editValue,
 	"segmentLabel":      segmentLabel,
 	"verificationLabel": verificationLabel,
+	"sharedCSS":         sharedCSS,
+	"pageURL":           paginationURL,
 }).Parse(dashboardV2HTML))
 
 var detailV2Tmpl = template.Must(template.New("detail-v2").Funcs(template.FuncMap{
@@ -75,6 +93,7 @@ var detailV2Tmpl = template.Must(template.New("detail-v2").Funcs(template.FuncMa
 	"editValue":         editValue,
 	"segmentLabel":      segmentLabel,
 	"verificationLabel": verificationLabel,
+	"sharedCSS":         sharedCSS,
 }).Parse(detailV2HTML))
 
 func (a *app) filterFromRequest(r *http.Request, limit int) leadstore.Filter {
@@ -161,6 +180,43 @@ func buildPageURL(values url.Values, page int) string {
 	return buildExportURL("/", pageValues)
 }
 
+func paginationURL(rawQuery string, page int) string {
+	values, err := url.ParseQuery(rawQuery)
+	if err != nil {
+		values = url.Values{}
+	}
+	return buildPageURL(values, page)
+}
+
+func paginationWindow(current, total int) []int {
+	if total < 1 {
+		return []int{1}
+	}
+	if current < 1 {
+		current = 1
+	}
+	if current > total {
+		current = total
+	}
+	start := current - 2
+	if start < 1 {
+		start = 1
+	}
+	end := start + 4
+	if end > total {
+		end = total
+		start = end - 4
+		if start < 1 {
+			start = 1
+		}
+	}
+	pages := make([]int, 0, end-start+1)
+	for page := start; page <= end; page++ {
+		pages = append(pages, page)
+	}
+	return pages
+}
+
 func (a *app) handleDashboardV2(w http.ResponseWriter, r *http.Request) {
 	filter := a.filterFromRequest(r, 5000)
 	allLeads, err := a.store.List(r.Context(), filter)
@@ -240,16 +296,75 @@ func (a *app) handleDashboardV2(w http.ResponseWriter, r *http.Request) {
 		Segment: segment, Target: target, VerificationStatus: verification,
 		FilteredTotal: len(rows), Page: page, TotalPages: totalPages,
 		PrevPage: page - 1, NextPage: page + 1, HasPrev: page > 1, HasNext: page < totalPages,
-		FilterQuery: values.Encode(),
+		FilterQuery:       values.Encode(),
 		InternalExportURL: buildExportURL("/export.csv", values),
 		CustomerExportURL: buildExportURL("/export/customer.csv", values),
-		PrevPageURL: buildPageURL(values, page-1),
-		NextPageURL: buildPageURL(values, page+1),
-		Collect: a.collectStatus(),
+		PrevPageURL:       buildPageURL(values, page-1),
+		NextPageURL:       buildPageURL(values, page+1),
+		CurrentPageURL:    buildPageURL(values, page),
+		PageNumbers:       paginationWindow(page, totalPages),
+		Collect:           a.collectStatus(),
 	}
 	if err := dashboardV2Tmpl.Execute(w, data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
+}
+
+func safeDashboardURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "/"
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.IsAbs() || parsed.Host != "" || parsed.Path != "/" {
+		return "/"
+	}
+	return parsed.RequestURI()
+}
+
+func detailURL(id int64, from string) string {
+	values := url.Values{}
+	from = safeDashboardURL(from)
+	if from != "/" {
+		values.Set("from", from)
+	}
+	if query := values.Encode(); query != "" {
+		return fmt.Sprintf("/lead/%d?%s", id, query)
+	}
+	return fmt.Sprintf("/lead/%d", id)
+}
+
+func detailRedirectURL(id int64, from, noticeKey string) string {
+	values := url.Values{}
+	from = safeDashboardURL(from)
+	if from != "/" {
+		values.Set("from", from)
+	}
+	if strings.TrimSpace(noticeKey) != "" {
+		values.Set(noticeKey, "saved")
+	}
+	if query := values.Encode(); query != "" {
+		return fmt.Sprintf("/lead/%d?%s", id, query)
+	}
+	return fmt.Sprintf("/lead/%d", id)
+}
+
+func (a *app) detailRows(r *http.Request, from string) ([]dashboardRow, error) {
+	parsed, _ := url.Parse(safeDashboardURL(from))
+	values := parsed.Query()
+	clone := r.Clone(r.Context())
+	clone.URL = &url.URL{Path: "/", RawQuery: values.Encode()}
+	leads, err := a.store.List(r.Context(), a.filterFromRequest(clone, 5000))
+	if err != nil {
+		return nil, err
+	}
+	return a.dashboardRows(
+		r.Context(), leads,
+		values.Get("review_status"),
+		values.Get("segment"),
+		values.Get("target"),
+		values.Get("verification_status"),
+	)
 }
 
 func (a *app) handleLeadDetailV2(w http.ResponseWriter, r *http.Request) {
@@ -273,9 +388,31 @@ func (a *app) handleLeadDetailV2(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	from := safeDashboardURL(r.URL.Query().Get("from"))
 	data := dashboardDetailData{
 		Lead: lead, Images: leadImages(lead.Images, lead.Thumbnail, 5),
-		Review: review, Enrichment: enrichment,
+		Review: review, Enrichment: enrichment, BackURL: from, From: from,
+	}
+	if rows, navErr := a.detailRows(r, from); navErr == nil {
+		data.Total = len(rows)
+		for i := range rows {
+			if rows[i].ID != id {
+				continue
+			}
+			data.Position = i + 1
+			data.HasPrev = i > 0
+			data.HasNext = i+1 < len(rows)
+			if data.HasPrev {
+				data.PrevURL = detailURL(rows[i-1].ID, from)
+				data.PrevTitle = rows[i-1].Title
+			}
+			if data.HasNext {
+				data.NextURL = detailURL(rows[i+1].ID, from)
+				data.NextTitle = rows[i+1].Title
+			}
+			break
+		}
 	}
 	if err := detailV2Tmpl.Execute(w, data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -300,7 +437,7 @@ func (a *app) handleLeadReviewV2(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	http.Redirect(w, r, fmt.Sprintf("/lead/%d?review=saved", id), http.StatusSeeOther)
+	http.Redirect(w, r, detailRedirectURL(id, r.FormValue("from"), "review"), http.StatusSeeOther)
 }
 
 func (a *app) handleLeadEnrichment(w http.ResponseWriter, r *http.Request) {
@@ -338,7 +475,7 @@ func (a *app) handleLeadEnrichment(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	http.Redirect(w, r, fmt.Sprintf("/lead/%d?enrichment=saved", id), http.StatusSeeOther)
+	http.Redirect(w, r, detailRedirectURL(id, r.FormValue("from"), "enrichment"), http.StatusSeeOther)
 }
 
 func validateEnrichmentForm(r *http.Request) error {
@@ -463,6 +600,9 @@ func verificationLabel(value string) string {
 		return "Belum diverifikasi"
 	}
 }
+
+//go:embed ui.css
+var sharedUIStyles string
 
 //go:embed dashboard.html
 var dashboardV2HTML string

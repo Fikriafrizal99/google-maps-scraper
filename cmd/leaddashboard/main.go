@@ -18,9 +18,21 @@ import (
 const pageSize = 25
 
 type collectState struct {
-	Running   bool
-	Message   string
-	StartedAt string
+	Running         bool   `json:"running"`
+	Stage           string `json:"stage"`
+	Message         string `json:"message"`
+	StartedAt       string `json:"started_at"`
+	FinishedAt      string `json:"finished_at"`
+	Location        string `json:"location"`
+	Depth           int    `json:"depth"`
+	Concurrency     int    `json:"concurrency"`
+	QueryCount      int    `json:"query_count"`
+	RawRows         int    `json:"raw_rows"`
+	FinalRows       int    `json:"final_rows"`
+	ImportedRows    int    `json:"imported_rows"`
+	Elapsed         string `json:"elapsed"`
+	Log             string `json:"log"`
+	CancelRequested bool   `json:"cancel_requested"`
 }
 
 type imageRecord struct {
@@ -28,16 +40,17 @@ type imageRecord struct {
 }
 
 type app struct {
-	store         *leadstore.Store
-	geo           *geodata.Client
-	user          string
-	pass          string
-	dbPath        string
-	collectorPath string
-	enginePath    string
-	configDir     string
-	collectMu     sync.RWMutex
-	collect       collectState
+	store          *leadstore.Store
+	geo            *geodata.Client
+	user           string
+	pass           string
+	dbPath         string
+	collectorPath  string
+	enginePath     string
+	configDir      string
+	collectMu      sync.RWMutex
+	collect        collectState
+	collectProcess *os.Process
 }
 
 func main() {
@@ -73,6 +86,7 @@ func main() {
 		collectorPath: *collectorPath,
 		enginePath:    *enginePath,
 		configDir:     *configDir,
+		collect:       collectState{Stage: "idle"},
 	}
 
 	mux := http.NewServeMux()
@@ -83,6 +97,7 @@ func main() {
 	mux.HandleFunc("GET /queue", a.handleQueue)
 	mux.HandleFunc("POST /queue/{id}", a.handleQueueSave)
 	mux.HandleFunc("GET /api/leads", a.handleAPILeadsV2)
+	mux.HandleFunc("GET /api/collect/status", a.handleCollectStatus)
 	mux.HandleFunc("GET /api/geo/provinces", a.handleGeoProvinces)
 	mux.HandleFunc("GET /api/geo/regencies", a.handleGeoRegencies)
 	mux.HandleFunc("GET /api/geo/districts", a.handleGeoDistricts)
@@ -92,6 +107,7 @@ func main() {
 	mux.HandleFunc("GET /export/customer.pdf", a.handleCustomerExportPDF)
 	mux.HandleFunc("GET /export/customer.xlsx", a.handleCustomerExportXLSXV12)
 	mux.HandleFunc("POST /collect", a.handleCollect)
+	mux.HandleFunc("POST /collect/cancel", a.handleCollectCancel)
 	mux.HandleFunc("POST /import", a.handleImport)
 
 	server := &http.Server{

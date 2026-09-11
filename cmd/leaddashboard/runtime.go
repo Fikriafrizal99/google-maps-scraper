@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	collectorLogPath   = "data/collector-last.log"
+	collectorLogPath  = "data/collector-last.log"
 	collectTimeLayout = "2006-01-02 15:04:05"
 )
 
@@ -131,6 +131,15 @@ func (a *app) runCollector(preset, area, subarea, location string, depth, concur
 		a.finishCollect("failed", fmt.Sprintf("Collect gagal (%s). Lihat %s", err, logPath))
 		return
 	}
+
+	finalLog := tailTextFile(logPath, 64<<10)
+	finalProgress := collectState{}
+	applyCollectProgress(&finalProgress, finalLog)
+	if finalProgress.Stage == "partial" {
+		a.finishCollect("partial", fmt.Sprintf("Collect selesai sebagian %s · %d raw → %d final → %d diproses ke DB", stamp, finalProgress.RawRows, finalProgress.FinalRows, finalProgress.ImportedRows))
+		return
+	}
+
 	a.finishCollect("completed", fmt.Sprintf("Collect selesai %s · output %s · log %s", stamp, output, logPath))
 }
 
@@ -156,6 +165,9 @@ func (a *app) collectStatus() collectState {
 	state.Elapsed = collectElapsed(state.StartedAt, state.FinishedAt, state.Running)
 	if strings.TrimSpace(state.Stage) == "" {
 		state.Stage = "idle"
+	}
+	if state.Running && state.Stage == "stalled" {
+		state.Message = fmt.Sprintf("Scraper tidak menghasilkan data baru selama %s. Hasil sementara sedang diselamatkan.", formatIdleAge(state.IdleSeconds))
 	}
 	return state
 }
@@ -228,6 +240,7 @@ func applyCollectProgress(state *collectState, logText string) {
 	parseInt("raw_rows", &state.RawRows)
 	parseInt("final_rows", &state.FinalRows)
 	parseInt("imported_rows", &state.ImportedRows)
+	parseInt("idle_seconds", &state.IdleSeconds)
 
 	if stage := strings.TrimSpace(latest["stage"]); stage != "" {
 		if state.Running || !terminalCollectStage(state.Stage) {
@@ -238,7 +251,7 @@ func applyCollectProgress(state *collectState, logText string) {
 
 func terminalCollectStage(stage string) bool {
 	switch strings.ToLower(strings.TrimSpace(stage)) {
-	case "completed", "cancelled", "failed":
+	case "completed", "partial", "cancelled", "failed":
 		return true
 	default:
 		return false
@@ -285,7 +298,7 @@ func collectElapsed(startRaw, finishRaw string, running bool) string {
 	}
 	end := time.Now()
 	if !running && strings.TrimSpace(finishRaw) != "" {
-		if parsed, parseErr := time.ParseInLocation(collectTimeLayout, finishRaw, time.Local); parseErr == nil {
+		if parsed, parseErr := time.ParseInLocation(collectTimeLayout, strings.TrimSpace(finishRaw), time.Local); parseErr == nil {
 			end = parsed
 		}
 	}
@@ -303,6 +316,21 @@ func collectElapsed(startRaw, finishRaw string, running bool) string {
 	}
 	hours := minutes / 60
 	return fmt.Sprintf("%dh %02dm", hours, minutes%60)
+}
+
+func formatIdleAge(seconds int) string {
+	if seconds <= 0 {
+		return "baru saja"
+	}
+	if seconds < 60 {
+		return fmt.Sprintf("%dd", seconds)
+	}
+	minutes := seconds / 60
+	if minutes < 60 {
+		return fmt.Sprintf("%dm %02dd", minutes, seconds%60)
+	}
+	hours := minutes / 60
+	return fmt.Sprintf("%dj %02dm", hours, minutes%60)
 }
 
 func (a *app) handleImport(w http.ResponseWriter, r *http.Request) {

@@ -30,6 +30,7 @@ type collectState struct {
 	RawRows         int    `json:"raw_rows"`
 	FinalRows       int    `json:"final_rows"`
 	ImportedRows    int    `json:"imported_rows"`
+	IdleSeconds     int    `json:"idle_seconds"`
 	Elapsed         string `json:"elapsed"`
 	Log             string `json:"log"`
 	CancelRequested bool   `json:"cancel_requested"`

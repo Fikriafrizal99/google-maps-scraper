@@ -19,18 +19,25 @@ import (
 	"github.com/gosom/google-maps-scraper/internal/leadstore"
 )
 
+const (
+	progressInterval  = 2 * time.Second
+	progressHeartbeat = 10 * time.Second
+	stallGracePeriod  = 5 * time.Second
+)
+
 func main() {
 	var (
-		presetName = flag.String("preset", "", "preset name from config/presets, e.g. kost")
-		areaName   = flag.String("area", "", "area name from config/areas, e.g. jakarta")
-		subarea    = flag.String("subarea", "", "optional static subarea name, e.g. Jakarta Selatan")
-		location   = flag.String("location", "", "optional resolved administrative location from province to village")
-		configDir  = flag.String("config-dir", "config", "collector config directory")
-		engine     = flag.String("engine", filepath.FromSlash("bin/google_maps_scraper"), "path to google_maps_scraper binary")
-		output     = flag.String("output", "collector-results.csv", "filtered/deduplicated CSV output")
-		dbPath     = flag.String("db", filepath.FromSlash("data/leads.db"), "SQLite master lead database")
-		noDB       = flag.Bool("no-db", false, "skip importing results into the master database")
-		keepRaw    = flag.Bool("keep-raw", false, "keep temporary raw CSV and query file")
+		presetName   = flag.String("preset", "", "preset name from config/presets, e.g. kost")
+		areaName     = flag.String("area", "", "area name from config/areas, e.g. jakarta")
+		subarea      = flag.String("subarea", "", "optional static subarea name, e.g. Jakarta Selatan")
+		location     = flag.String("location", "", "optional resolved administrative location from province to village")
+		configDir    = flag.String("config-dir", "config", "collector config directory")
+		engine       = flag.String("engine", filepath.FromSlash("bin/google_maps_scraper"), "path to google_maps_scraper binary")
+		output       = flag.String("output", "collector-results.csv", "filtered/deduplicated CSV output")
+		dbPath       = flag.String("db", filepath.FromSlash("data/leads.db"), "SQLite master lead database")
+		noDB         = flag.Bool("no-db", false, "skip importing results into the master database")
+		keepRaw      = flag.Bool("keep-raw", false, "keep temporary raw CSV and query file")
+		stallTimeout = flag.Duration("stall-timeout", 3*time.Minute, "stop scraper after this long without new raw rows; zero disables stall detection")
 	)
 	flag.Parse()
 
@@ -84,6 +91,9 @@ func main() {
 	} else if *subarea != "" {
 		fmt.Printf("Subarea: %s\n", *subarea)
 	}
+	if *stallTimeout > 0 {
+		fmt.Printf("Stall detector: %s without new rows (empty result grace %s)\n", *stallTimeout, *stallTimeout*2)
+	}
 	printProgress("starting", len(queries), 0, 0, 0)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -100,18 +110,53 @@ func main() {
 	printProgress("scraping", len(queries), 0, 0, 0)
 	waitCh := make(chan error, 1)
 	go func() { waitCh <- cmd.Wait() }()
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(progressInterval)
 	defer ticker.Stop()
 
 	var runErr error
+	var partialReason string
+	lastRows := 0
+	lastActivity := time.Now()
+	lastLoggedAt := time.Now()
+
 scrapeLoop:
 	for {
 		select {
 		case runErr = <-waitCh:
 			break scrapeLoop
-		case <-ticker.C:
+		case now := <-ticker.C:
 			rawRows := countCSVDataRows(rawFile)
-			printProgress("scraping", len(queries), rawRows, 0, 0)
+			if rawRows != lastRows {
+				lastRows = rawRows
+				lastActivity = now
+			}
+			idleSeconds := idleSecondsSince(lastActivity, now)
+
+			if shouldDeclareStall(lastActivity, now, *stallTimeout, rawRows) {
+				partialReason = fmt.Sprintf("scraper stall: tidak ada data baru selama %s", time.Duration(idleSeconds)*time.Second)
+				printProgressWithIdle("stalled", len(queries), rawRows, 0, 0, idleSeconds)
+				fmt.Fprintf(os.Stderr, "collector: %s; menghentikan scraper dan menyelamatkan %d raw rows\n", partialReason, rawRows)
+				if cmd.Process != nil {
+					_ = cmd.Process.Signal(os.Interrupt)
+				}
+				select {
+				case runErr = <-waitCh:
+				case <-time.After(stallGracePeriod):
+					if cmd.Process != nil {
+						_ = cmd.Process.Kill()
+					}
+					runErr = <-waitCh
+				}
+				break scrapeLoop
+			}
+
+			if rawRows != lastRows || now.Sub(lastLoggedAt) >= progressHeartbeat {
+				printProgressWithIdle("scraping", len(queries), rawRows, 0, 0, idleSeconds)
+				lastLoggedAt = now
+			} else if rawRows > 0 && idleSeconds == 0 {
+				printProgressWithIdle("scraping", len(queries), rawRows, 0, 0, 0)
+				lastLoggedAt = now
+			}
 		}
 	}
 
@@ -121,9 +166,18 @@ scrapeLoop:
 		fmt.Fprintln(os.Stderr, "collector: cancelled")
 		return
 	}
-	if runErr != nil {
+	if runErr != nil && partialReason == "" {
+		if rawRows <= 0 {
+			printProgress("failed", len(queries), rawRows, 0, 0)
+			fatalf("scraper failed: %v", runErr)
+		}
+		partialReason = fmt.Sprintf("scraper berhenti dengan error: %v", runErr)
+		fmt.Fprintf(os.Stderr, "collector: %s; menyelamatkan %d raw rows\n", partialReason, rawRows)
+	}
+
+	if rawRows <= 0 {
 		printProgress("failed", len(queries), rawRows, 0, 0)
-		fatalf("scraper failed: %v", runErr)
+		fatalf("scraper selesai tanpa raw rows yang bisa diproses")
 	}
 
 	printProgress("processing", len(queries), rawRows, 0, 0)
@@ -167,17 +221,44 @@ scrapeLoop:
 		fmt.Printf("Master DB: %s (%d rows processed)\n", *dbPath, count)
 	}
 
-	printProgress("completed", len(queries), rawRows, finalRows, importedRows)
+	finalStage := "completed"
+	if partialReason != "" {
+		finalStage = "partial"
+		fmt.Printf("Partial result salvaged: %s\n", partialReason)
+	}
+	printProgress(finalStage, len(queries), rawRows, finalRows, importedRows)
 	if *keepRaw {
 		fmt.Printf("Raw files kept in: %s\n", tmpDir)
 	}
 }
 
 func printProgress(stage string, queries, rawRows, finalRows, importedRows int) {
+	printProgressWithIdle(stage, queries, rawRows, finalRows, importedRows, 0)
+}
+
+func printProgressWithIdle(stage string, queries, rawRows, finalRows, importedRows, idleSeconds int) {
 	fmt.Printf(
-		"KOST_PROGRESS stage=%s queries=%d raw_rows=%d final_rows=%d imported_rows=%d\n",
-		stage, queries, rawRows, finalRows, importedRows,
+		"KOST_PROGRESS stage=%s queries=%d raw_rows=%d final_rows=%d imported_rows=%d idle_seconds=%d\n",
+		stage, queries, rawRows, finalRows, importedRows, idleSeconds,
 	)
+}
+
+func shouldDeclareStall(lastActivity, now time.Time, timeout time.Duration, rawRows int) bool {
+	if timeout <= 0 || lastActivity.IsZero() || now.Before(lastActivity) {
+		return false
+	}
+	limit := timeout
+	if rawRows <= 0 {
+		limit = timeout * 2
+	}
+	return now.Sub(lastActivity) >= limit
+}
+
+func idleSecondsSince(lastActivity, now time.Time) int {
+	if lastActivity.IsZero() || now.Before(lastActivity) {
+		return 0
+	}
+	return int(now.Sub(lastActivity).Seconds())
 }
 
 func countCSVDataRows(path string) int {

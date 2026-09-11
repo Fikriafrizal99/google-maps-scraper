@@ -21,13 +21,12 @@ func TestSafeDashboardURL(t *testing.T) {
 		{name: "reject other local path", raw: "/queue?q=melati", want: "/"},
 	}
 
-	for _, tt := range tests {
-		t := tt
-		testName := tt.name
-		t.Run(testName, func(t *testing.T) {
+	for i := range tests {
+		tc := tests[i]
+		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			if got := safeDashboardURL(tt.raw); got != tt.want {
-				t.Fatalf("safeDashboardURL(%q) = %q, want %q", tt.raw, got, tt.want)
+			if got := safeDashboardURL(tc.raw); got != tc.want {
+				t.Fatalf("safeDashboardURL(%q) = %q, want %q", tc.raw, got, tc.want)
 			}
 		})
 	}
@@ -84,13 +83,12 @@ func TestPaginationWindow(t *testing.T) {
 		{name: "empty result fallback", current: 1, total: 0, want: []int{1}},
 	}
 
-	for _, tt := range tests {
-		t := tt
-		testName := tt.name
-		t.Run(testName, func(t *testing.T) {
+	for i := range tests {
+		tc := tests[i]
+		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			if got := paginationWindow(tt.current, tt.total); !reflect.DeepEqual(got, tt.want) {
-				t.Fatalf("paginationWindow(%d, %d) = %v, want %v", tt.current, tt.total, got, tt.want)
+			if got := paginationWindow(tc.current, tc.total); !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("paginationWindow(%d, %d) = %v, want %v", tc.current, tc.total, got, tc.want)
 			}
 		})
 	}

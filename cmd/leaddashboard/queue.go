@@ -34,7 +34,11 @@ var queueTmpl = template.Must(template.New("queue").Funcs(template.FuncMap{
 	"wa":                waNumber,
 	"reviewLabel":       reviewLabel,
 	"editValue":         editValue,
+	"displayValue":      displayValue,
+	"segmentLabel":      segmentLabel,
 	"verificationLabel": verificationLabel,
+	"shortTime":         shortTime,
+	"sharedCSS":         sharedCSS,
 }).Parse(queueHTML))
 
 func (a *app) handleQueue(w http.ResponseWriter, r *http.Request) {

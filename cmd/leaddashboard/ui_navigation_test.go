@@ -23,7 +23,8 @@ func TestSafeDashboardURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t := tt
-		t.Run(tt.name, func(t *testing.T) {
+		testName := tt.name
+		t.Run(testName, func(t *testing.T) {
 			t.Parallel()
 			if got := safeDashboardURL(tt.raw); got != tt.want {
 				t.Fatalf("safeDashboardURL(%q) = %q, want %q", tt.raw, got, tt.want)
@@ -85,7 +86,8 @@ func TestPaginationWindow(t *testing.T) {
 
 	for _, tt := range tests {
 		t := tt
-		t.Run(tt.name, func(t *testing.T) {
+		testName := tt.name
+		t.Run(testName, func(t *testing.T) {
 			t.Parallel()
 			if got := paginationWindow(tt.current, tt.total); !reflect.DeepEqual(got, tt.want) {
 				t.Fatalf("paginationWindow(%d, %d) = %v, want %v", tt.current, tt.total, got, tt.want)

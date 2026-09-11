@@ -3,12 +3,16 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/csv"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gosom/google-maps-scraper/internal/collectorconfig"
 	"github.com/gosom/google-maps-scraper/internal/collectorpost"
@@ -80,30 +84,69 @@ func main() {
 	} else if *subarea != "" {
 		fmt.Printf("Subarea: %s\n", *subarea)
 	}
+	printProgress("starting", len(queries), 0, 0, 0)
 
-	cmd := exec.Command(*engine, args...)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	cmd := exec.CommandContext(ctx, *engine, args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
-	if err := cmd.Run(); err != nil {
-		fatalf("scraper failed: %v", err)
+	if err := cmd.Start(); err != nil {
+		printProgress("failed", len(queries), 0, 0, 0)
+		fatalf("scraper failed to start: %v", err)
 	}
 
+	printProgress("scraping", len(queries), 0, 0, 0)
+	waitCh := make(chan error, 1)
+	go func() { waitCh <- cmd.Wait() }()
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	var runErr error
+scrapeLoop:
+	for {
+		select {
+		case runErr = <-waitCh:
+			break scrapeLoop
+		case <-ticker.C:
+			rawRows := countCSVDataRows(rawFile)
+			printProgress("scraping", len(queries), rawRows, 0, 0)
+		}
+	}
+
+	rawRows := countCSVDataRows(rawFile)
+	if ctx.Err() != nil {
+		printProgress("cancelled", len(queries), rawRows, 0, 0)
+		fmt.Fprintln(os.Stderr, "collector: cancelled")
+		return
+	}
+	if runErr != nil {
+		printProgress("failed", len(queries), rawRows, 0, 0)
+		fatalf("scraper failed: %v", runErr)
+	}
+
+	printProgress("processing", len(queries), rawRows, 0, 0)
 	if err := collectorpost.ProcessCSV(rawFile, *output, preset); err != nil {
+		printProgress("failed", len(queries), rawRows, 0, 0)
 		fatalf("post-process results: %v", err)
 	}
-
+	finalRows := countCSVDataRows(*output)
 	fmt.Printf("CSV: %s\n", *output)
 
+	importedRows := 0
 	if !*noDB {
+		printProgress("importing", len(queries), rawRows, finalRows, 0)
 		dir := filepath.Dir(*dbPath)
 		if dir != "." {
 			if err := os.MkdirAll(dir, 0o755); err != nil {
+				printProgress("failed", len(queries), rawRows, finalRows, 0)
 				fatalf("create database directory: %v", err)
 			}
 		}
 		store, err := leadstore.Open(*dbPath)
 		if err != nil {
+			printProgress("failed", len(queries), rawRows, finalRows, 0)
 			fatalf("open master database: %v", err)
 		}
 		storedSubarea := strings.TrimSpace(*subarea)
@@ -113,17 +156,54 @@ func main() {
 		count, importErr := store.ImportCSV(context.Background(), *output, preset.Name, area.Name, storedSubarea)
 		closeErr := store.Close()
 		if importErr != nil {
+			printProgress("failed", len(queries), rawRows, finalRows, 0)
 			fatalf("import master database: %v", importErr)
 		}
 		if closeErr != nil {
+			printProgress("failed", len(queries), rawRows, finalRows, count)
 			fatalf("close master database: %v", closeErr)
 		}
+		importedRows = count
 		fmt.Printf("Master DB: %s (%d rows processed)\n", *dbPath, count)
 	}
 
+	printProgress("completed", len(queries), rawRows, finalRows, importedRows)
 	if *keepRaw {
 		fmt.Printf("Raw files kept in: %s\n", tmpDir)
 	}
+}
+
+func printProgress(stage string, queries, rawRows, finalRows, importedRows int) {
+	fmt.Printf(
+		"KOST_PROGRESS stage=%s queries=%d raw_rows=%d final_rows=%d imported_rows=%d\n",
+		stage, queries, rawRows, finalRows, importedRows,
+	)
+}
+
+func countCSVDataRows(path string) int {
+	file, err := os.Open(path)
+	if err != nil {
+		return 0
+	}
+	defer file.Close()
+
+	reader := csv.NewReader(file)
+	reader.FieldsPerRecord = -1
+	records := 0
+	for {
+		_, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			break
+		}
+		records++
+	}
+	if records <= 1 {
+		return 0
+	}
+	return records - 1
 }
 
 func writeQueries(path string, queries []string) error {

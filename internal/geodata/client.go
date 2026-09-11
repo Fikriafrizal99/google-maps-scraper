@@ -35,7 +35,6 @@ var javaSumatraProvinceIDs = map[string]struct{}{
 
 // Emsifa v2 uses dotted hierarchy IDs, for example:
 // 32 -> 32.01 -> 32.01.01 -> 32.01.01.2001.
-// Plain numeric IDs remain accepted so an existing v1 cache can still be read.
 var regionID = regexp.MustCompile(`^[0-9]+(?:\.[0-9]+){0,3}$`)
 
 func New(cacheDir string) *Client {
@@ -53,7 +52,7 @@ func NewWithBaseURL(cacheDir, baseURL string) *Client {
 }
 
 func (c *Client) Provinces(ctx context.Context) ([]Region, error) {
-	regions, err := c.load(ctx, "provinces.json", "provinces.json")
+	regions, err := c.load(ctx, "v2-provinces.json", "provinces.json")
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +70,7 @@ func (c *Client) Regencies(ctx context.Context, provinceID string) ([]Region, er
 	if _, ok := javaSumatraProvinceIDs[provinceID]; !ok {
 		return nil, fmt.Errorf("province %q is outside Java-Sumatra scope", provinceID)
 	}
-	return c.load(ctx, "regencies-"+provinceID+".json", "regencies/"+provinceID+".json")
+	return c.load(ctx, "v2-regencies-"+provinceID+".json", "regencies/"+provinceID+".json")
 }
 
 func (c *Client) Districts(ctx context.Context, regencyID string) ([]Region, error) {
@@ -79,7 +78,7 @@ func (c *Client) Districts(ctx context.Context, regencyID string) ([]Region, err
 	if !regionID.MatchString(regencyID) {
 		return nil, fmt.Errorf("invalid regency id")
 	}
-	return c.load(ctx, "districts-"+cacheSafeID(regencyID)+".json", "districts/"+regencyID+".json")
+	return c.load(ctx, "v2-districts-"+cacheSafeID(regencyID)+".json", "districts/"+regencyID+".json")
 }
 
 func (c *Client) Villages(ctx context.Context, districtID string) ([]Region, error) {
@@ -87,7 +86,7 @@ func (c *Client) Villages(ctx context.Context, districtID string) ([]Region, err
 	if !regionID.MatchString(districtID) {
 		return nil, fmt.Errorf("invalid district id")
 	}
-	return c.load(ctx, "villages-"+cacheSafeID(districtID)+".json", "villages/"+districtID+".json")
+	return c.load(ctx, "v2-villages-"+cacheSafeID(districtID)+".json", "villages/"+districtID+".json")
 }
 
 func cacheSafeID(id string) string {
@@ -138,7 +137,7 @@ func (c *Client) load(ctx context.Context, cacheName, upstreamPath string) ([]Re
 }
 
 func decodeRegions(data []byte) ([]Region, error) {
-	// Backward compatibility with the v1 API/cache, which returned a bare array.
+	// Keep compatibility with bare-array fixtures or an explicitly supplied legacy API.
 	var regions []Region
 	if err := json.Unmarshal(data, &regions); err == nil && len(regions) > 0 {
 		return regions, nil

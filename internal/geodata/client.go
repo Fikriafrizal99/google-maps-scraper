@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-const DefaultBaseURL = "https://emsifa.github.io/api-wilayah-indonesia/api"
+const DefaultBaseURL = "https://www.emsifa.com/api-wilayah-indonesia/v2"
 
 type Region struct {
 	ID   string `json:"id"`
@@ -33,7 +33,10 @@ var javaSumatraProvinceIDs = map[string]struct{}{
 	"31": {}, "32": {}, "33": {}, "34": {}, "35": {}, "36": {},
 }
 
-var numericID = regexp.MustCompile(`^[0-9]+$`)
+// Emsifa v2 uses dotted hierarchy IDs, for example:
+// 32 -> 32.01 -> 32.01.01 -> 32.01.01.2001.
+// Plain numeric IDs remain accepted so an existing v1 cache can still be read.
+var regionID = regexp.MustCompile(`^[0-9]+(?:\.[0-9]+){0,3}$`)
 
 func New(cacheDir string) *Client {
 	return NewWithBaseURL(cacheDir, DefaultBaseURL)
@@ -64,6 +67,7 @@ func (c *Client) Provinces(ctx context.Context) ([]Region, error) {
 }
 
 func (c *Client) Regencies(ctx context.Context, provinceID string) ([]Region, error) {
+	provinceID = strings.TrimSpace(provinceID)
 	if _, ok := javaSumatraProvinceIDs[provinceID]; !ok {
 		return nil, fmt.Errorf("province %q is outside Java-Sumatra scope", provinceID)
 	}
@@ -71,17 +75,23 @@ func (c *Client) Regencies(ctx context.Context, provinceID string) ([]Region, er
 }
 
 func (c *Client) Districts(ctx context.Context, regencyID string) ([]Region, error) {
-	if !numericID.MatchString(regencyID) {
+	regencyID = strings.TrimSpace(regencyID)
+	if !regionID.MatchString(regencyID) {
 		return nil, fmt.Errorf("invalid regency id")
 	}
-	return c.load(ctx, "districts-"+regencyID+".json", "districts/"+regencyID+".json")
+	return c.load(ctx, "districts-"+cacheSafeID(regencyID)+".json", "districts/"+regencyID+".json")
 }
 
 func (c *Client) Villages(ctx context.Context, districtID string) ([]Region, error) {
-	if !numericID.MatchString(districtID) {
+	districtID = strings.TrimSpace(districtID)
+	if !regionID.MatchString(districtID) {
 		return nil, fmt.Errorf("invalid district id")
 	}
-	return c.load(ctx, "villages-"+districtID+".json", "villages/"+districtID+".json")
+	return c.load(ctx, "villages-"+cacheSafeID(districtID)+".json", "villages/"+districtID+".json")
+}
+
+func cacheSafeID(id string) string {
+	return strings.ReplaceAll(id, ".", "-")
 }
 
 func (c *Client) load(ctx context.Context, cacheName, upstreamPath string) ([]Region, error) {
@@ -91,8 +101,7 @@ func (c *Client) load(ctx context.Context, cacheName, upstreamPath string) ([]Re
 	if strings.TrimSpace(c.cacheDir) != "" {
 		cachePath := filepath.Join(c.cacheDir, cacheName)
 		if data, err := os.ReadFile(cachePath); err == nil {
-			var regions []Region
-			if json.Unmarshal(data, &regions) == nil && len(regions) > 0 {
+			if regions, decodeErr := decodeRegions(data); decodeErr == nil && len(regions) > 0 {
 				return regions, nil
 			}
 		}
@@ -102,6 +111,7 @@ func (c *Client) load(ctx context.Context, cacheName, upstreamPath string) ([]Re
 	if err != nil {
 		return nil, err
 	}
+	req.Header.Set("Accept", "application/json")
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("download geo data: %w", err)
@@ -114,18 +124,41 @@ func (c *Client) load(ctx context.Context, cacheName, upstreamPath string) ([]Re
 	if err != nil {
 		return nil, fmt.Errorf("read geo data: %w", err)
 	}
-	var regions []Region
-	if err := json.Unmarshal(data, &regions); err != nil {
-		return nil, fmt.Errorf("decode geo data: %w", err)
-	}
-	if len(regions) == 0 {
-		return nil, fmt.Errorf("geo data is empty")
+	regions, err := decodeRegions(data)
+	if err != nil {
+		return nil, err
 	}
 
 	if strings.TrimSpace(c.cacheDir) != "" {
 		if err := os.MkdirAll(c.cacheDir, 0o755); err == nil {
 			_ = os.WriteFile(filepath.Join(c.cacheDir, cacheName), data, 0o644)
 		}
+	}
+	return regions, nil
+}
+
+func decodeRegions(data []byte) ([]Region, error) {
+	// Backward compatibility with the v1 API/cache, which returned a bare array.
+	var regions []Region
+	if err := json.Unmarshal(data, &regions); err == nil && len(regions) > 0 {
+		return regions, nil
+	}
+
+	// Emsifa v2 wraps the payload in {"data": [...], "meta": {...}}.
+	var wrapped struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(data, &wrapped); err != nil {
+		return nil, fmt.Errorf("decode geo data: %w", err)
+	}
+	if len(wrapped.Data) == 0 || string(wrapped.Data) == "null" {
+		return nil, fmt.Errorf("geo data response has no data")
+	}
+	if err := json.Unmarshal(wrapped.Data, &regions); err != nil {
+		return nil, fmt.Errorf("decode geo data payload: %w", err)
+	}
+	if len(regions) == 0 {
+		return nil, fmt.Errorf("geo data is empty")
 	}
 	return regions, nil
 }
